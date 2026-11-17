@@ -71,6 +71,6 @@ def test_windows_only_modules_import_everywhere():
 def test_windows_only_features_fail_clearly_off_windows():
     with pytest.raises(UnsupportedPlatformError, match="only runs on Windows"):
         require_windows("PresentMon capture")
-    from gfl.capture import capture_run
+    from gfl.capture import SubprocessRunner
     with pytest.raises(UnsupportedPlatformError):
-        capture_run()
+        SubprocessRunner()
