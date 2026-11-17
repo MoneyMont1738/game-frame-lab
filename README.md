@@ -50,7 +50,7 @@ captures; `gfl hypothesis-check` refuses to run on synthetic data.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Config schema, PresentMon and FrameView parsers, metrics, synthetic sample data, tests, `gfl analyze` | Done |
-| 2 | Windows run automation (game launch, PresentMon capture, VRAM logging), FrameView validation | In progress |
+| 2 | Windows run automation (game launch, PresentMon capture, VRAM logging), FrameView validation | Done (built and tested without hardware; not yet run on Windows) |
 | 2b | macOS capture path: real frame times from Metal games on Apple silicon | Planned |
 | 3 | DLSS experiments and `gfl compare` | Planned |
 | 4 | TensorRT inference load generator and contention analysis | Planned |
@@ -132,11 +132,16 @@ gfl run configs/lyra_scalability.yaml --dry-run
 
 | Step | Command | Available |
 |---|---|---|
-| Capture an experiment | `gfl run configs/<experiment>.yaml` | Phase 2 |
+| Capture an experiment | `gfl run configs/<experiment>.yaml` (`--tag fix` for after runs) | Now (Windows) |
+| Check PresentMon against FrameView | `gfl validate data/raw/<capture folder> --frameview-dir <FrameView logs>` | Now |
 | Analyze a capture folder | `gfl analyze data/raw/<capture folder>` | Now |
 | DLSS, contention, before/after comparisons | `gfl compare ...` | Phases 3 to 5 |
 | Build the report | `gfl report` | Phase 6 |
 | Check the hypotheses against real data | `gfl hypothesis-check data/raw/<folders>` | Phase 6 |
+
+On the benchmark PC, copy `gfl.local.example.yaml` to `gfl.local.yaml` and set
+the PresentMon path. The step-by-step guide for a capture session, including
+the checks to do first, is [docs/windows_runbook.md](docs/windows_runbook.md).
 
 Every capture folder has a `manifest.csv` with one row per run: its config,
 run number, warmup, file names, and whether the data is real or synthetic.
@@ -183,9 +188,19 @@ mean across its runs. Keeping runs separate makes run-to-run variance measurable
 The 0.1% low of a short, slow run rests on very few frames, so it is flagged when
 fewer than 5 frames make up the slowest 0.1%.
 
-**Validation (Phase 2).** PresentMon and FrameView observe the same `Present()`
-events, so on the same run they should agree closely. The validation step aligns
-the two logs and reports how far apart their metrics are.
+**Capture sequence.** For every run: launch the game with the config's settings
+on the command line, wait for the camera path to start, start the nvidia-smi
+logger, run PresentMon for exactly 60 s, then close the game. The game restarts
+for every run so runs are independent. Scalability is set with the sg.*
+console variables, frame caps and VSync are off, and native runs pin the render
+resolution to 100%.
+
+**Validation.** PresentMon and FrameView read the same `Present()` events, so on
+the same run they should report the same frame times. FrameView is started by
+hand, so its log is offset; `gfl validate` finds the frame offset where the two
+logs match best, then compares average FPS (tolerance 1%), 1% low (3%), and p99
+frame time (3%) on the overlap. A large difference means a capture bug or logs
+from different runs, so the run is flagged.
 
 **Synthetic data.** The sample data is generated, labeled synthetic in file names,
 manifests, tables, and charts, and never used for findings. See
@@ -195,8 +210,12 @@ manifests, tables, and charts, and never used for findings. See
 
 ```
 configs/        experiment YAML files and schema reference
+docs/           Windows run book
 gfl/            Python package
   cli.py          gfl command line (typer)
+  launch.py       Unreal command line (sg.* settings, resolution)
+  capture.py      run sequence: launch, PresentMon, nvidia-smi, manifest
+  validate.py     PresentMon vs. FrameView alignment and agreement
   config.py       YAML schema, validation, matrix expansion
   manifest.py     per-folder run index, real vs. synthetic
   parse.py        PresentMon, FrameView, and nvidia-smi parsers
@@ -204,8 +223,8 @@ gfl/            Python package
   analyze.py      gfl analyze pipeline
   plots.py        charts
   synthetic.py    synthetic sample data generator
-  capture.py, launch.py, validate.py, compare.py, report.py,
-  hypothesis_check.py   later phases
+  settings.py     machine-specific paths (gfl.local.yaml)
+  compare.py, report.py, hypothesis_check.py   later phases
 inference/      TensorRT load generator (later phase)
 data/sample/    synthetic sample captures (committed)
 data/raw/       real captures (gitignored)
