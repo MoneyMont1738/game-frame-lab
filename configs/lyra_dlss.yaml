@@ -1,0 +1,29 @@
+# Experiment 3a: DLSS modes in Lyra.
+# 2 resolutions x 4 DLSS modes x Frame Generation off/on = 16 configs.
+# Requires the NVIDIA DLSS / Streamline plugin enabled in the Lyra build.
+experiment: lyra_dlss
+description: >
+  DLSS Super Resolution modes and Frame Generation at 1440p and 4K on the Epic preset.
+  "native" is the reference that FPS gain and VRAM cost are measured against.
+
+scene:
+  name: lyra
+  launcher: unreal
+  executable: "C:/Benchmarks/LyraBuild/Windows/LyraGame.exe"
+  process_name: LyraGame.exe
+  map: /ShooterMaps/Maps/L_Expanse
+
+capture:
+  runs: 3
+  duration_s: 60
+  warmup_s: 10
+  cooldown_s: 15
+
+tag: baseline
+
+matrix:
+  preset: [epic]
+  resolution: [2560x1440, 3840x2160]
+  dlss_mode: [native, quality, balanced, performance]
+  frame_generation: [false, true]
+  inference_streams: [0]

@@ -1,0 +1,29 @@
+# Experiment 4: GPU contention from a concurrent AI inference workload.
+# A separate process runs Real-ESRGAN x2 (compact, FP16 TensorRT engine) at
+# 30 inferences/s per stream on 1080p frames while the game runs.
+experiment: lyra_contention
+description: >
+  Lyra at Epic/1440p native with 0, 1, and 2 concurrent inference streams.
+  Reports added frame time per stream relative to the 0-stream baseline.
+
+scene:
+  name: lyra
+  launcher: unreal
+  executable: "C:/Benchmarks/LyraBuild/Windows/LyraGame.exe"
+  process_name: LyraGame.exe
+  map: /ShooterMaps/Maps/L_Expanse
+
+capture:
+  runs: 3
+  duration_s: 60
+  warmup_s: 10
+  cooldown_s: 15
+
+tag: baseline
+
+matrix:
+  preset: [epic]
+  resolution: [2560x1440]
+  dlss_mode: [native]
+  frame_generation: [false]
+  inference_streams: [0, 1, 2]

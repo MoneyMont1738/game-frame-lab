@@ -1,0 +1,28 @@
+# Experiment 3b: DLSS modes in Cyberpunk 2077's built-in benchmark.
+# Launched by hand: set the graphics settings and DLSS mode in the game menu,
+# start the benchmark, and gfl captures it. Same matrix as Lyra for comparison.
+experiment: cyberpunk_dlss
+description: >
+  Cyberpunk 2077 built-in benchmark at 1440p and 4K. Graphics settings are set by
+  hand in the game menu (record the exact settings in the run notes). DLSS Super
+  Resolution modes and Frame Generation off/on.
+
+scene:
+  name: cyberpunk
+  launcher: manual
+  process_name: Cyberpunk2077.exe
+
+capture:
+  runs: 3
+  duration_s: 60
+  warmup_s: 10
+  cooldown_s: 15
+
+tag: baseline
+
+matrix:
+  preset: [manual]
+  resolution: [2560x1440, 3840x2160]
+  dlss_mode: [native, quality, balanced, performance]
+  frame_generation: [false, true]
+  inference_streams: [0]

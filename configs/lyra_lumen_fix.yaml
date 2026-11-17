@@ -1,0 +1,31 @@
+# Experiment 5: before/after study of one targeted Lumen fix.
+# Capture once with tag "baseline", apply the fix (chosen from the Nsight Graphics
+# GPU Trace), then capture again with tag "fix". Everything else stays identical.
+experiment: lyra_lumen_fix
+description: >
+  Epic/4K native, the configuration where the GPU trace is taken. Baseline and fix
+  runs are compared on mean frame time (ms), not FPS, because frame time is linear
+  in GPU work.
+
+scene:
+  name: lyra
+  launcher: unreal
+  executable: "C:/Benchmarks/LyraBuild/Windows/LyraGame.exe"
+  process_name: LyraGame.exe
+  map: /ShooterMaps/Maps/L_Expanse
+
+capture:
+  runs: 3
+  duration_s: 60
+  warmup_s: 10
+  cooldown_s: 15
+
+# Change to "fix" for the second set of runs.
+tag: baseline
+
+matrix:
+  preset: [epic]
+  resolution: [3840x2160]
+  dlss_mode: [native]
+  frame_generation: [false]
+  inference_streams: [0]
