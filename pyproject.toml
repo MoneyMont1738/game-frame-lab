@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "game-frame-lab"
+version = "0.1.0"
+description = "Frame-time benchmarking and analysis toolkit for a GPU performance study (Unreal Engine 5, DLSS, AI inference contention)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Jackson Montgomery" }]
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "matplotlib>=3.8",
+    "typer>=0.12",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# TensorRT, pycuda/cuda-python, and the Real-ESRGAN weights are installed by hand
+# on the Windows benchmark PC. See README "Windows setup".
+
+[project.scripts]
+gfl = "gfl.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["gfl*", "inference*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
