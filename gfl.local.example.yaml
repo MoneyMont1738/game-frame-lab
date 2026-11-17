@@ -1,0 +1,7 @@
+# Copy to gfl.local.yaml (gitignored) on the benchmark PC and edit the paths.
+presentmon_exe: "C:/Tools/PresentMon/PresentMon-2.3.0-x64.exe"
+nvidia_smi_exe: "nvidia-smi"
+capture_root: "data/raw"
+load_wait_s: 25
+telemetry_interval_ms: 500
+presentmon_timeout_margin_s: 60

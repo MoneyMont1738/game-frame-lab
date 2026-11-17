@@ -160,9 +160,7 @@ def parse_experiment(raw: dict[str, Any], source_path: Path | None = None) -> Ex
 
     scene = _parse_scene(_require(raw, "scene", dict))
     capture = _parse_capture(raw.get("capture") or {})
-    tag = str(raw.get("tag", "baseline"))
-    if not _TAG_RE.match(tag):
-        raise ConfigError(f"tag must be lowercase letters, digits, '_' or '-', got {tag!r}")
+    tag = validate_tag(str(raw.get("tag", "baseline")))
 
     matrix = _require(raw, "matrix", dict)
     presets = tuple(str(p).lower() for p in _as_list(_require(matrix, "preset", (list, str))))
@@ -208,6 +206,13 @@ def parse_experiment(raw: dict[str, Any], source_path: Path | None = None) -> Ex
         inference_streams=streams,
         source_path=source_path,
     )
+
+
+def validate_tag(tag: str) -> str:
+    """Tags label runs ("baseline", "fix") and become part of file names."""
+    if not _TAG_RE.match(tag):
+        raise ConfigError(f"tag must be lowercase letters, digits, '_' or '-', got {tag!r}")
+    return tag
 
 
 def _parse_scene(raw: dict[str, Any]) -> SceneConfig:

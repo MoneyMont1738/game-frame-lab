@@ -258,3 +258,6 @@ data/raw/
 
 # macOS
 .DS_Store
+
+# Machine-specific gfl settings (tool paths on the benchmark PC)
+gfl.local.yaml
