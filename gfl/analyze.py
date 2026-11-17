@@ -38,6 +38,13 @@ class AnalysisResult:
         return self.data_kind == "synthetic"
 
 
+def default_out_dir(manifest: pd.DataFrame) -> Path:
+    """results/<experiment>, or results/synthetic/<experiment> for synthetic data."""
+    experiment = "+".join(sorted(manifest["experiment"].unique()))
+    synthetic = mf.data_kind_of(manifest) == "synthetic"
+    return Path("results") / ("synthetic" if synthetic else "") / experiment
+
+
 def load_run_frames(run_dir: Path, row: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Parse and trim one run's PresentMon log and (optional) telemetry log."""
     frames = load_presentmon_csv(mf.resolve(run_dir, row["presentmon_csv"]))
@@ -57,10 +64,7 @@ def analyze(run_dir: str | Path, out_dir: str | Path | None = None,
     data_kind = mf.data_kind_of(manifest)
     synthetic = data_kind == "synthetic"
 
-    if out_dir is None:
-        experiment = "+".join(sorted(manifest["experiment"].unique()))
-        out_dir = Path("results") / ("synthetic" if synthetic else "") / experiment
-    out_dir = Path(out_dir)
+    out_dir = Path(out_dir) if out_dir is not None else default_out_dir(manifest)
     out_dir.mkdir(parents=True, exist_ok=True)
     prefix = "SYNTHETIC_" if synthetic else ""
 

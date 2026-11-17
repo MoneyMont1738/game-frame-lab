@@ -1,4 +1,4 @@
-"""Command line interface: gfl run | analyze | compare | report | hypothesis-check."""
+"""Command line interface: gfl run | analyze | validate | compare | report | hypothesis-check."""
 
 from __future__ import annotations
 
@@ -33,26 +33,70 @@ def _fail(exc: Exception) -> None:
 @app.command()
 def run(
     config: Path = typer.Argument(..., help="Experiment YAML, e.g. configs/lyra_scalability.yaml"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate the config and print the run plan."),
+    dry_run: bool = typer.Option(False, "--dry-run",
+                                 help="Print every step without running anything (any OS)."),
+    tag: str = typer.Option(None, "--tag", help="Override the config's tag, e.g. fix"),
+    settings_path: Path = typer.Option(None, "--settings",
+                                       help="Local settings file (default: gfl.local.yaml)"),
 ) -> None:
     """Capture every config in an experiment (Windows benchmark PC)."""
+    from gfl.capture import (DryRunRunner, SubprocessRunner, capture_dir_for, run_experiment,
+                             with_tag)
+    from gfl.settings import load_settings
+
     try:
-        experiment = load_experiment(config)
+        experiment = with_tag(load_experiment(config), tag)
+        settings = load_settings(settings_path)
         runs = experiment.expand()
         cap = experiment.capture
-        total_min = len(runs) * cap.runs * (cap.duration_s + cap.cooldown_s) / 60
-        typer.echo(f"Experiment: {experiment.name} ({config})")
+        per_run_s = settings.load_wait_s + cap.duration_s + cap.cooldown_s
+        typer.echo(f"Experiment: {experiment.name} ({config}), tag {experiment.tag}")
         typer.echo(f"{len(runs)} configs x {cap.runs} runs x {cap.duration_s:g} s "
-                   f"(first {cap.warmup_s:g} s dropped). About {total_min:.0f} min of capture.")
-        for r in runs:
-            typer.echo(f"  {r.config_id}")
+                   f"(first {cap.warmup_s:g} s dropped). "
+                   f"About {len(runs) * cap.runs * per_run_s / 60:.0f} min including load and cooldown.")
+        out_dir = capture_dir_for(experiment, settings)
         if dry_run:
+            typer.echo(f"Dry run: nothing is executed. Output would go to {out_dir}\n")
+            run_experiment(experiment, DryRunRunner(typer.echo), settings, out_dir, write_files=False)
             return
-        from gfl.capture import capture_run
-
-        capture_run(experiment)
+        runner = SubprocessRunner(typer.echo)
+        run_experiment(experiment, runner, settings, out_dir)
+        typer.echo(f"\nCaptured. Next: gfl analyze {out_dir}")
     except _USER_ERRORS as exc:
         _fail(exc)
+
+
+@app.command()
+def validate(
+    run_dir: Path = typer.Argument(..., help="Capture directory containing manifest.csv"),
+    frameview_dir: Path = typer.Option(None, "--frameview-dir",
+                                       help="Folder with FrameView logs to attach to the runs first"),
+    out: Path = typer.Option(None, "--out", help="Output directory (default: results/<experiment>)"),
+) -> None:
+    """Check how closely PresentMon and FrameView agree on the same runs."""
+    from gfl.analyze import default_out_dir
+    from gfl.manifest import read_manifest
+    from gfl.validate import attach_frameview, validate_directory, validation_markdown
+
+    try:
+        if frameview_dir is not None:
+            for note in attach_frameview(run_dir, frameview_dir):
+                typer.echo(note)
+        table, data_kind = validate_directory(run_dir)
+        synthetic = data_kind == "synthetic"
+        out = out or default_out_dir(read_manifest(run_dir))
+        out.mkdir(parents=True, exist_ok=True)
+        prefix = "SYNTHETIC_" if synthetic else ""
+        table.to_csv(out / f"{prefix}validation.csv", index=False, float_format="%.5f")
+        md = validation_markdown(table, synthetic, SYNTHETIC_BANNER)
+        (out / f"{prefix}validation.md").write_text(md, encoding="utf-8")
+    except _USER_ERRORS as exc:
+        _fail(exc)
+        return
+    typer.echo(md)
+    typer.echo(f"Wrote {out / f'{prefix}validation.csv'} and {out / f'{prefix}validation.md'}")
+    if not table["agree"].all():
+        raise typer.Exit(code=2)
 
 
 @app.command("analyze")
