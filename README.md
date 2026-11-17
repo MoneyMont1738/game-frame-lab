@@ -1,2 +1,211 @@
-# game-frame-lab
-GPU performance study of Unreal Engine 5 and Cyberpunk 2077: automated frame-time benchmarking, Nsight GPU trace analysis, DLSS comparisons, and AI inference contention testing on an RTX 4070.
+# Game Frame Lab
+
+A GPU performance study of Unreal Engine 5 and Cyberpunk 2077 on an NVIDIA
+GeForce RTX 4070: automated frame-time benchmarking, Nsight GPU trace analysis,
+DLSS comparisons, and AI inference contention testing. This repository holds the
+Python toolkit that runs and analyzes the benchmarks, and the written report.
+
+## Results summary
+
+> **Placeholder: no real benchmark data has been captured yet.**
+> This section will show one chart and three findings from the RTX 4070 runs.
+> Until it is filled in, nothing in this repository is a measured result. The
+> sample data in `data/sample/` is synthetic and exists only to test the code.
+
+**Chart:** pending real data.
+
+**Findings:**
+
+1. Pending: where the GPU time goes at Epic/4K (Nsight Graphics GPU Trace).
+2. Pending: frame time saved by one targeted fix, before vs. after.
+3. Pending: DLSS FPS gain and VRAM cost per mode vs. native, Lyra and Cyberpunk 2077.
+
+## What the study measures
+
+| # | Experiment | Config |
+|---|---|---|
+| 1 | Lyra Starter Game across 4 scalability presets (Low, Medium, High, Epic) x 3 resolutions (1080p, 1440p, 4K) | `configs/lyra_scalability.yaml` |
+| 2 | PresentMon frame times validated against NVIDIA FrameView on the same runs | (all runs) |
+| 3 | DLSS Native, Quality, Balanced, Performance, with Frame Generation on and off, at 1440p and 4K, in Lyra and Cyberpunk 2077 | `configs/lyra_dlss.yaml`, `configs/cyberpunk_dlss.yaml` |
+| 4 | GPU contention: 0, 1, 2 concurrent Real-ESRGAN TensorRT inference streams while the game runs | `configs/lyra_contention.yaml` |
+| 5 | Before/after study of one targeted Lumen fix found with Nsight Graphics | `configs/lyra_lumen_fix.yaml` |
+
+Hypotheses under test (each will be reported as held or not held, with the
+measured value, in `results/hypotheses.md`):
+
+- **H1:** Lumen global illumination is the main GPU cost at Epic/4K.
+- **H2:** One targeted Lumen fix saves about 4.2 ms of frame time.
+- **H3:** DLSS Quality gives about a 68% FPS gain over native at 4K.
+
+These are hypotheses, not findings. They are checked only against real
+captures; `gfl hypothesis-check` refuses to run on synthetic data.
+
+## Project status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Config schema, PresentMon and FrameView parsers, metrics, synthetic sample data, tests, `gfl analyze` | Done |
+| 2 | Windows run automation (game launch, PresentMon capture, VRAM logging), FrameView validation | Planned |
+| 3 | DLSS experiments and `gfl compare` | Planned |
+| 4 | TensorRT inference load generator and contention analysis | Planned |
+| 5 | Lumen before/after study | Planned |
+| 6 | Report generator and `gfl hypothesis-check` | Planned |
+
+## Try it without a GPU
+
+Analysis runs on Linux, macOS, or Windows with Python 3.11+.
+
+```bash
+pip install -e ".[dev]"
+```
+
+```bash
+python -m pytest
+```
+
+```bash
+gfl analyze data/sample/synthetic_lyra_scalability
+```
+
+This parses the 36 synthetic runs, drops the 10 s warmup from each, computes the
+metrics, prints a summary table, and writes CSV, Markdown, and PNG output to
+`results/synthetic/lyra_scalability/`. Every output file is prefixed
+`SYNTHETIC_` and every chart carries a "synthetic data" banner. Example:
+[synthetic frame-time chart](results/synthetic/lyra_scalability/SYNTHETIC_frametime_trace_2560x1440.png).
+
+## Windows setup (benchmark PC)
+
+The capture side needs Windows, an NVIDIA GPU, and the tools below. On other
+operating systems the capture commands stop with a message explaining this.
+
+**Python.** Install Python 3.11, then from the repository folder:
+
+```bash
+pip install -e ".[dev]"
+```
+
+**PresentMon.** Download the PresentMon 2.x console application from the
+GameTechDev/PresentMon releases on GitHub. It reads Windows ETW events, so run it
+from an administrator terminal (or add your account to the Performance Log Users
+group). Phase 2 adds the setting for its install path.
+
+**nvidia-smi.** Installed with the NVIDIA driver. It logs VRAM use alongside
+PresentMon, because PresentMon does not record memory.
+
+**NVIDIA FrameView.** Install from NVIDIA's website. FrameView is started by hand
+with its benchmark hotkey during the same runs PresentMon captures, and its CSV
+logs are copied into the run folder for validation.
+
+**Nsight Graphics.** Install from the NVIDIA developer site. GPU Trace captures
+of the Epic/4K scene are taken by hand to find where GPU time goes. Capture files
+are large and are not committed.
+
+**TensorRT (Phase 4).** Install a TensorRT release that matches your CUDA version
+and its Python package. The Real-ESRGAN compact model is exported to ONNX and
+built into an FP16 engine with `trtexec --fp16`. Engines and weights are not
+committed.
+
+**Lyra build.** Lyra Starter Game in Unreal Engine 5.4 or later, with Lumen
+enabled (Project Settings, Rendering, Dynamic Global Illumination Method:
+Lumen). Package a Windows **Development** build: it keeps console commands
+available, which the launcher uses to set scalability. For the DLSS experiment,
+enable the NVIDIA DLSS plugin for Unreal Engine before packaging. Set the path to
+the packaged `LyraGame.exe` in the `configs/lyra_*.yaml` files.
+
+**Cyberpunk 2077.** Installed normally. Its runs use the built-in benchmark,
+started by hand; gfl only captures and analyzes them.
+
+## Running the experiments
+
+Check any config and see its run plan (works on any OS):
+
+```bash
+gfl run configs/lyra_scalability.yaml --dry-run
+```
+
+| Step | Command | Available |
+|---|---|---|
+| Capture an experiment | `gfl run configs/<experiment>.yaml` | Phase 2 |
+| Analyze a capture folder | `gfl analyze data/raw/<capture folder>` | Now |
+| DLSS, contention, before/after comparisons | `gfl compare ...` | Phases 3 to 5 |
+| Build the report | `gfl report` | Phase 6 |
+| Check the hypotheses against real data | `gfl hypothesis-check data/raw/<folders>` | Phase 6 |
+
+Every capture folder has a `manifest.csv` with one row per run: its config,
+run number, warmup, file names, and whether the data is real or synthetic.
+Analysis reads the manifest rather than guessing from file names.
+
+Experiment-specific notes:
+
+- **Scalability:** one config file covers all 12 configs, 3 runs each.
+- **DLSS:** the Cyberpunk config uses `launcher: manual`. Set the in-game
+  settings by hand and record them in the run notes.
+- **Contention:** the inference process runs at a fixed 30 inferences per second
+  per stream, so the load is the same in every run.
+- **Lumen fix:** capture with `tag: baseline`, apply the fix, capture again with
+  `tag: fix`. Everything else stays identical.
+
+## Methodology
+
+**Capture.** Each config is captured 3 times for 60 s. The first 10 s of every
+run are dropped, because shader compilation, texture streaming, and GPU clock
+ramp-up make them unrepresentative. Trimming is by time, so every run contributes
+the same 50 s window regardless of frame rate. Runs are separated by a 15 s
+cooldown.
+
+**Frame time** is the interval between consecutive `Present()` calls
+(`MsBetweenPresents`), the value both PresentMon and FrameView report.
+
+**Metrics** (definitions pinned by tests in `tests/test_metrics.py`):
+
+| Metric | Definition |
+|---|---|
+| Average FPS | Frames divided by elapsed time, which is 1000 / mean frame time. Not the mean of per-frame FPS, which overstates performance. |
+| p99 frame time | 99th percentile of frame times, linear interpolation. |
+| 1% low, 0.1% low | Average FPS of the slowest 1% (0.1%) of frames: 1000 / mean of the slowest k frame times, k = ceil(n x fraction). |
+| Stutter count | Frames longer than 2x the run's median frame time. Also reported per minute. |
+| GPU busy % | Sum of PresentMon `MsGPUBusy` / sum of frame time. Near 100% means GPU-bound. |
+| VRAM | Device-wide `memory.used` from nvidia-smi sampled every 500 ms: mean and peak. |
+| Run-to-run variance | Sample standard deviation and coefficient of variation of average FPS across the 3 runs. |
+
+Some tools define "1% low" as 1000 / p99 frame time. This toolkit reports both
+quantities separately (1% low, and p99 frame time) and names them precisely.
+
+**Aggregation.** Metrics are computed per run; a config's headline value is the
+mean across its runs. Keeping runs separate makes run-to-run variance measurable.
+The 0.1% low of a short, slow run rests on very few frames, so it is flagged when
+fewer than 5 frames make up the slowest 0.1%.
+
+**Validation (Phase 2).** PresentMon and FrameView observe the same `Present()`
+events, so on the same run they should agree closely. The validation step aligns
+the two logs and reports how far apart their metrics are.
+
+**Synthetic data.** The sample data is generated, labeled synthetic in file names,
+manifests, tables, and charts, and never used for findings. See
+`data/sample/README.md`.
+
+## Repository layout
+
+```
+configs/        experiment YAML files and schema reference
+gfl/            Python package
+  cli.py          gfl command line (typer)
+  config.py       YAML schema, validation, matrix expansion
+  manifest.py     per-folder run index, real vs. synthetic
+  parse.py        PresentMon, FrameView, and nvidia-smi parsers
+  metrics.py      frame-time metrics
+  analyze.py      gfl analyze pipeline
+  plots.py        charts
+  synthetic.py    synthetic sample data generator
+  capture.py, launch.py, validate.py, compare.py, report.py,
+  hypothesis_check.py   later phases
+inference/      TensorRT load generator (later phase)
+data/sample/    synthetic sample captures (committed)
+data/raw/       real captures (gitignored)
+results/        summary CSVs and charts
+tests/          pytest suite
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
