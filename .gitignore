@@ -221,3 +221,40 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------
+# Game Frame Lab: project-specific ignores
+# ---------------------------------------------------------------
+
+# Private working notes (never published)
+notes/
+
+# Game and Unreal Engine files (large, licensed, or machine-specific)
+*.pak
+*.uasset
+*.umap
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+Packaged/
+*.exe
+*.dll
+
+# Nsight Graphics / Nsight Systems captures (large, may contain game assets)
+*.ngfx-capture
+*.ngfx-gputrace
+*.nsys-rep
+*.qdrep
+
+# Raw capture logs; only summary CSVs and charts are committed
+data/raw/
+
+# TensorRT engines and model weights
+*.engine
+*.onnx
+*.pth
+
+# macOS
+.DS_Store
