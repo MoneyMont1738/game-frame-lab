@@ -39,7 +39,7 @@ code meets the situations a real capture produces:
   and streaming), which is why the warmup is dropped
 - small run-to-run differences
 
-It is not an estimate of RTX 4070 or Lyra performance.
+It is not an estimate of any real GPU or of Lyra performance.
 
 ## Regenerate
 

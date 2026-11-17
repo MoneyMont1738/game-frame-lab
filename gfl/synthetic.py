@@ -10,7 +10,7 @@ summary and chart produced from it carries a SYNTHETIC banner.
 The numbers below are INVENTED. They are shaped to look like a real capture
 (CPU/GPU-bound behavior, noise, hitches, a warmup period, run-to-run spread)
 so that parsing, trimming, metrics, and plots are exercised realistically.
-They are not estimates of RTX 4070 or Lyra performance, and nothing in the
+They are not estimates of any real GPU or of Lyra performance, and nothing in the
 study's findings may be derived from them.
 """
 

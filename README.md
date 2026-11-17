@@ -1,14 +1,19 @@
 # Game Frame Lab
 
-A GPU performance study of Unreal Engine 5 and Cyberpunk 2077 on an NVIDIA
-GeForce RTX 4070: automated frame-time benchmarking, Nsight GPU trace analysis,
-DLSS comparisons, and AI inference contention testing. This repository holds the
-Python toolkit that runs and analyzes the benchmarks, and the written report.
+A frame-time benchmarking and analysis toolkit for GPU performance studies,
+and the study it is built for: Unreal Engine 5 (Lyra) and Cyberpunk 2077 on an
+NVIDIA RTX 40-series GPU, covering scalability presets, Nsight GPU trace
+analysis, DLSS comparisons, and AI inference contention.
+
+The toolkit is developed and tested on machines without an NVIDIA GPU. The
+NVIDIA capture path runs on a Windows PC with an RTX 40-series card; a macOS
+capture path for Apple silicon is planned so the toolkit can also measure real
+games on hardware without NVIDIA.
 
 ## Results summary
 
 > **Placeholder: no real benchmark data has been captured yet.**
-> This section will show one chart and three findings from the RTX 4070 runs.
+> This section will show one chart and three findings from real captures.
 > Until it is filled in, nothing in this repository is a measured result. The
 > sample data in `data/sample/` is synthetic and exists only to test the code.
 
@@ -45,7 +50,8 @@ captures; `gfl hypothesis-check` refuses to run on synthetic data.
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Config schema, PresentMon and FrameView parsers, metrics, synthetic sample data, tests, `gfl analyze` | Done |
-| 2 | Windows run automation (game launch, PresentMon capture, VRAM logging), FrameView validation | Planned |
+| 2 | Windows run automation (game launch, PresentMon capture, VRAM logging), FrameView validation | In progress |
+| 2b | macOS capture path: real frame times from Metal games on Apple silicon | Planned |
 | 3 | DLSS experiments and `gfl compare` | Planned |
 | 4 | TensorRT inference load generator and contention analysis | Planned |
 | 5 | Lumen before/after study | Planned |
@@ -75,8 +81,9 @@ metrics, prints a summary table, and writes CSV, Markdown, and PNG output to
 
 ## Windows setup (benchmark PC)
 
-The capture side needs Windows, an NVIDIA GPU, and the tools below. On other
-operating systems the capture commands stop with a message explaining this.
+The capture side needs Windows, an NVIDIA RTX 40-series GPU (DLSS Frame
+Generation requires one), and the tools below. On other operating systems the
+capture commands stop with a message explaining this.
 
 **Python.** Install Python 3.11, then from the repository folder:
 
