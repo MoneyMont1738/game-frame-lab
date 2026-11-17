@@ -1,0 +1,13 @@
+config_id,scene,preset,resolution,dlss_mode,frame_generation,inference_streams,tag,runs,frames,avg_fps,mean_frametime_ms,p99_frametime_ms,low_1pct_fps,low_01pct_fps,stutter_count,stutters_per_min,gpu_busy_pct,vram_mean_mib,vram_peak_mib,avg_fps_std,avg_fps_cv_pct,low_01pct_low_confidence,data_kind
+lyra_low_1920x1080_native_fg-off_s0_baseline,lyra,low,1920x1080,native,False,0,baseline,3,35518,236.775,4.223,4.901,194.310,156.214,2.000,2.400,61.097,2597.653,2714.000,0.897,0.379,False,synthetic
+lyra_low_2560x1440_native_fg-off_s0_baseline,lyra,low,2560x1440,native,False,0,baseline,3,35207,234.709,4.261,4.888,192.790,142.766,2.333,2.800,92.927,3143.390,3241.000,1.209,0.515,False,synthetic
+lyra_low_3840x2160_native_fg-off_s0_baseline,lyra,low,3840x2160,native,False,0,baseline,3,18516,123.437,8.103,9.244,96.031,55.372,3.333,4.000,98.014,4698.273,4826.000,2.460,1.993,False,synthetic
+lyra_medium_1920x1080_native_fg-off_s0_baseline,lyra,medium,1920x1080,native,False,0,baseline,3,32390,215.939,4.631,5.366,173.248,116.633,3.000,3.600,85.837,3197.783,3302.000,2.185,1.012,False,synthetic
+lyra_medium_2560x1440_native_fg-off_s0_baseline,lyra,medium,2560x1440,native,False,0,baseline,3,23977,159.837,6.257,7.149,123.251,66.075,4.667,5.600,97.452,3747.787,3879.000,0.884,0.553,False,synthetic
+lyra_medium_3840x2160_native_fg-off_s0_baseline,lyra,medium,3840x2160,native,False,0,baseline,3,11958,79.717,12.545,14.352,57.721,25.322,3.667,4.400,98.565,5299.243,5436.000,0.515,0.646,True,synthetic
+lyra_high_1920x1080_native_fg-off_s0_baseline,lyra,high,1920x1080,native,False,0,baseline,3,23404,156.030,6.409,7.334,119.866,63.919,4.333,5.200,97.507,4099.147,4223.000,1.234,0.791,False,synthetic
+lyra_high_2560x1440_native_fg-off_s0_baseline,lyra,high,2560x1440,native,False,0,baseline,3,15276,101.834,9.820,11.193,73.877,36.107,5.000,6.000,98.226,4641.020,4774.000,0.691,0.679,False,synthetic
+lyra_high_3840x2160_native_fg-off_s0_baseline,lyra,high,3840x2160,native,False,0,baseline,3,7597,50.646,19.746,22.692,32.700,14.028,4.667,5.600,98.800,6199.203,6305.000,0.521,1.030,True,synthetic
+lyra_epic_1920x1080_native_fg-off_s0_baseline,lyra,epic,1920x1080,native,False,0,baseline,3,15128,100.850,9.916,11.334,68.779,28.409,6.333,7.600,98.163,5201.143,5305.000,0.709,0.703,False,synthetic
+lyra_epic_2560x1440_native_fg-off_s0_baseline,lyra,epic,2560x1440,native,False,0,baseline,3,9865,65.774,15.204,17.382,38.923,17.517,8.000,9.601,98.366,5744.247,5855.000,0.446,0.679,True,synthetic
+lyra_epic_3840x2160_native_fg-off_s0_baseline,lyra,epic,3840x2160,native,False,0,baseline,3,4928,32.866,30.428,34.818,16.784,8.784,7.333,8.804,98.475,7302.360,7414.000,0.310,0.944,True,synthetic
