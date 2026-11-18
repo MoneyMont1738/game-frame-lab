@@ -128,17 +128,30 @@ def analyze(run_dir: str | Path, out_dir: str | Path | None = None,
     if trace_configs.empty:
         raise ValueError(f"no configs at resolution {resolution}; "
                          f"available: {sorted(summary['resolution'].unique())}")
+    variants = summary["tag"].nunique() > 1
+    if variants:
+        # Before/after study: one line per variant. With several presets at
+        # this resolution, the preset is part of the name.
+        one_preset = trace_configs["preset"].nunique() == 1
+        series = {(r.tag if one_preset else f"{r.preset} {r.tag}"): traces[r.config_id]
+                  for r in trace_configs.itertuples()}
+        what, legend = "run 1 of each variant", "Variant"
+    else:
+        series = {r.preset: traces[r.config_id] for r in trace_configs.itertuples()}
+        what, legend = "run 1 of each preset", "Preset"
     result.outputs.append(plots.frametime_trace(
-        {r.preset: traces[r.config_id] for r in trace_configs.itertuples()},
-        title=f"Frame time over the measured window, {resolution} (run 1 of each preset)",
+        series,
+        title=f"Frame time over the measured window, {resolution} ({what})",
         path=out_dir / f"{prefix}frametime_trace_{resolution}.png",
         banner=banner,
+        legend_title=legend,
     ))
-    result.outputs.append(plots.fps_by_config(
-        summary,
-        path=out_dir / f"{prefix}fps_by_preset_and_resolution.png",
-        banner=banner,
-    ))
+    if not variants:  # the before/after comparison (gfl compare) covers variants
+        result.outputs.append(plots.fps_by_config(
+            summary,
+            path=out_dir / f"{prefix}fps_by_preset_and_resolution.png",
+            banner=banner,
+        ))
     if pass_cols:
         result.outputs.append(plots.gpu_time_by_pass(
             summary, pass_cols,

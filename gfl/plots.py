@@ -53,7 +53,13 @@ def _figure(nrows: int = 1, height: float = 4.5, **kwargs):
     return fig, np.atleast_1d(axes)
 
 
-def _finish(fig: plt.Figure, title: str, path: Path, banner: str | None) -> Path:
+def _left_margin(labels) -> float:
+    """Left margin (figure fraction of a 10 in wide figure) that fits the longest y label."""
+    longest = max((len(str(label)) for label in labels), default=0)
+    return max(0.15, (0.075 * longest + 0.35) / 10)
+
+
+def _finish(fig: plt.Figure, title: str, path: Path, banner: str | None, left: float = 0.15) -> Path:
     # Fixed vertical stack in inches (banner, title, legend row, plot, x label),
     # so the layout holds for any figure height.
     h = fig.get_figheight()
@@ -67,16 +73,21 @@ def _finish(fig: plt.Figure, title: str, path: Path, banner: str | None) -> Path
                  weight="bold")
         fig.text(0.5, 0.45, "SYNTHETIC", ha="center", va="center", rotation=25,
                  fontsize=80, color=BANNER, alpha=0.07, weight="bold")
-    fig.subplots_adjust(left=0.15, right=0.98, bottom=0.62 / h, top=1 - plot_top_in / h)
+    fig.subplots_adjust(left=left, right=0.98, bottom=0.62 / h, top=1 - plot_top_in / h)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150, facecolor=SURFACE)
     plt.close(fig)
     return path
 
 
+# Variants of a before/after study, and any other series without a preset color,
+# take categorical slots in this fixed order.
+SERIES_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+
+
 def frametime_trace(traces: dict[str, pd.DataFrame], title: str, path: Path,
-                    banner: str | None = None) -> Path:
-    """Frame time vs. time, one line per preset.
+                    banner: str | None = None, legend_title: str = "Preset") -> Path:
+    """Frame time vs. time, one line per preset (or per variant in a before/after study).
 
     Log scale on y so a 4 ms preset and a 30 ms preset are both readable and
     spikes are shown in proportion (a doubling looks the same at any level).
@@ -85,9 +96,10 @@ def frametime_trace(traces: dict[str, pd.DataFrame], title: str, path: Path,
     fig, (ax,) = _figure(height=5.0)
     _style(ax)
     ordered = sorted(traces.items(), key=lambda kv: PRESET_LEVELS.get(kv[0], 99))
-    for preset, frames in ordered:
-        ax.plot(frames["time_s"], frames["frametime_ms"], color=PRESET_COLORS[preset],
-                linewidth=0.8, label=preset.capitalize())
+    for i, (name, frames) in enumerate(ordered):
+        color = PRESET_COLORS.get(name, SERIES_COLORS[i % len(SERIES_COLORS)])
+        ax.plot(frames["time_s"], frames["frametime_ms"], color=color, linewidth=0.8,
+                label=name.capitalize())
 
     ax.set_yscale("log")
     lo = min(f["frametime_ms"].min() for f in traces.values())
@@ -97,7 +109,7 @@ def frametime_trace(traces: dict[str, pd.DataFrame], title: str, path: Path,
     ax.minorticks_off()
     ax.set_xlabel("Time since capture start (s); warmup already removed", color=TEXT_SECONDARY)
     ax.set_ylabel("Frame time (log scale)", color=TEXT_SECONDARY)
-    ax.legend(title="Preset", frameon=False, ncols=len(traces), loc="lower left",
+    ax.legend(title=legend_title, frameon=False, ncols=len(traces), loc="lower left",
               bbox_to_anchor=(0, 1.01), fontsize=9, title_fontsize=9, alignment="left")
     return _finish(fig, title, path, banner)
 
@@ -142,6 +154,8 @@ def gpu_time_by_pass(summary: pd.DataFrame, pass_cols: list[str], path: Path,
     """
     rows = summary.iloc[::-1]  # first config at the top
     labels = [f"{p.capitalize()} {r}" for p, r in zip(rows["preset"], rows["resolution"])]
+    if "tag" in rows and rows["tag"].nunique() > 1:  # before/after: name the variant
+        labels = [f"{label} {t}" for label, t in zip(labels, rows["tag"])]
     fig, (ax,) = _figure(height=max(4.0, 0.45 * len(rows) + 2.6))
     _style(ax)
     ax.grid(axis="y", visible=False)
@@ -159,7 +173,7 @@ def gpu_time_by_pass(summary: pd.DataFrame, pass_cols: list[str], path: Path,
     ax.set_xlabel("Mean GPU time per frame (ms)", color=TEXT_SECONDARY)
     ax.legend(title="Render pass", frameon=False, ncols=len(pass_cols), loc="lower left",
               bbox_to_anchor=(0, 1.01), fontsize=9, title_fontsize=9, alignment="left")
-    return _finish(fig, "Where the GPU time goes, by render pass", path, banner)
+    return _finish(fig, "Where the GPU time goes, by render pass", path, banner, left=_left_margin(labels))
 
 
 def pass_share(summary: pd.DataFrame, pass_cols: list[str], resolution: str, path: Path,

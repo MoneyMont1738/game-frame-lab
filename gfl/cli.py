@@ -51,7 +51,12 @@ def run(
         cap = experiment.capture
         load_s = 0 if experiment.scene.launcher == "gflbench" else settings.load_wait_s
         per_run_s = load_s + cap.duration_s + cap.cooldown_s
-        typer.echo(f"Experiment: {experiment.name} ({config}), tag {experiment.tag}")
+        if experiment.variants:
+            names = ", ".join(name for name, _ in experiment.variants)
+            label = f"variants {names}, captured alternately"
+        else:
+            label = f"tag {experiment.tag}"
+        typer.echo(f"Experiment: {experiment.name} ({config}), {label}")
         typer.echo(f"{len(runs)} configs x {cap.runs} runs x {cap.duration_s:g} s "
                    f"(first {cap.warmup_s:g} s dropped). "
                    f"About {len(runs) * cap.runs * per_run_s / 60:.0f} min including load and cooldown.")
@@ -123,14 +128,29 @@ def analyze_cmd(
 
 
 @app.command()
-def compare() -> None:
-    """Compare DLSS modes, inference load, or baseline vs. fix (Phases 3 to 5)."""
-    try:
-        from gfl.compare import compare as do_compare
+def compare(
+    run_dir: Path = typer.Argument(..., help="Capture directory with runs of both variants"),
+    baseline: str = typer.Option("baseline", "--baseline", help="Tag of the before runs"),
+    fix: str = typer.Option("fix", "--fix", help="Tag of the after runs"),
+    out: Path = typer.Option(None, "--out", help="Output directory (default: results/<experiment>)"),
+) -> None:
+    """Before/after: change in frame time (ms) between two tagged variants, with a 95% interval."""
+    from gfl.compare import compare_tags, comparison_markdown
 
-        do_compare()
+    try:
+        result = analyze(run_dir, out)
+        table = compare_tags(result.per_run, baseline, fix)
+        prefix = "SYNTHETIC_" if result.is_synthetic else ""
+        table.to_csv(result.out_dir / f"{prefix}comparison.csv", index=False, float_format="%.4f")
+        md = comparison_markdown(table, baseline, fix)
+        if result.is_synthetic:
+            md = f"> **{SYNTHETIC_BANNER}**\n\n" + md
+        (result.out_dir / f"{prefix}comparison.md").write_text(md, encoding="utf-8")
     except _USER_ERRORS as exc:
         _fail(exc)
+        return
+    typer.echo(md)
+    typer.echo(f"Wrote {result.out_dir / f'{prefix}comparison.md'}")
 
 
 @app.command()
