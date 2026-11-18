@@ -137,3 +137,14 @@ def test_old_manifests_still_load(tmp_path):
     loaded = read_manifest(tmp_path)
     assert (loaded["capture_tool"] == "presentmon").all()
     assert loaded["frames_csv"].tolist() == manifest["frames_csv"].tolist()
+
+
+def test_pass_share_chart_from_a_summary_csv(tmp_path):
+    from gfl import plots
+    summary = pd.read_csv(ROOT / "results/metal_scalability/summary_apple_m3_2026-11-18.csv",
+                          dtype={"resolution": str})
+    pass_cols = [c for c in summary.columns if c.startswith("pass_")]
+    out = plots.pass_share(summary, pass_cols, "3840x2160", tmp_path / "share.png")
+    assert out.exists() and out.stat().st_size > 10_000
+    with pytest.raises(ValueError, match="no rows"):
+        plots.pass_share(summary, pass_cols, "1280x720", tmp_path / "none.png")

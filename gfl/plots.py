@@ -160,3 +160,37 @@ def gpu_time_by_pass(summary: pd.DataFrame, pass_cols: list[str], path: Path,
     ax.legend(title="Render pass", frameon=False, ncols=len(pass_cols), loc="lower left",
               bbox_to_anchor=(0, 1.01), fontsize=9, title_fontsize=9, alignment="left")
     return _finish(fig, "Where the GPU time goes, by render pass", path, banner)
+
+
+def pass_share(summary: pd.DataFrame, pass_cols: list[str], resolution: str, path: Path,
+               banner: str | None = None) -> Path:
+    """Share of each frame's GPU time per render pass, one 100% bar per preset.
+
+    Shows which pass dominates at each setting, independent of how slow the
+    setting is overall. Percentages are labeled on segments wide enough to read.
+    """
+    rows = summary[summary["resolution"] == resolution]
+    rows = rows.iloc[np.argsort([PRESET_LEVELS.get(p, 99) for p in rows["preset"]])[::-1]]
+    if rows.empty:
+        raise ValueError(f"no rows at resolution {resolution}")
+    totals = rows[pass_cols].sum(axis=1).to_numpy()
+    labels = [p.capitalize() for p in rows["preset"]]
+    fig, (ax,) = _figure(height=max(3.8, 0.55 * len(rows) + 2.4))
+    _style(ax)
+    ax.grid(axis="y", visible=False)
+    ax.grid(axis="x", color=GRID, linewidth=0.8)
+    left = np.zeros(len(rows))
+    for col, color in zip(pass_cols, PASS_COLORS):
+        share = 100 * rows[col].to_numpy() / totals
+        name = col.removeprefix("pass_").removesuffix("_ms")
+        ax.barh(labels, share, left=left, color=color, height=0.62, label=name, edgecolor=SURFACE, linewidth=1)
+        for y, (x0, s) in enumerate(zip(left, share)):
+            if s >= 8:
+                ax.text(x0 + s / 2, y, f"{s:.0f}%", ha="center", va="center", fontsize=9, color="#ffffff",
+                        weight="bold")
+        left += share
+    ax.set_xlim(0, 100)
+    ax.set_xlabel(f"Share of GPU time per frame at {resolution} (%)", color=TEXT_SECONDARY)
+    ax.legend(title="Render pass", frameon=False, ncols=len(pass_cols), loc="lower left",
+              bbox_to_anchor=(0, 1.01), fontsize=9, title_fontsize=9, alignment="left")
+    return _finish(fig, f"Which pass dominates, by preset ({resolution})", path, banner)
