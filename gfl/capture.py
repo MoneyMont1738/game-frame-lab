@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Protocol
 
-from gfl.config import ExperimentConfig, RunConfig, validate_tag
+from gfl.config import ConfigError, ExperimentConfig, RunConfig, validate_tag
 from gfl.launch import build_gflbench_command, build_unreal_command, command_line, kill_command
 from gfl.manifest import write_manifest
 from gfl.phases import pending
@@ -157,13 +157,16 @@ def with_tag(experiment: ExperimentConfig, tag: str | None) -> ExperimentConfig:
     """Override the experiment's tag, e.g. "fix" for the after runs."""
     if tag is None:
         return experiment
+    if experiment.variants:
+        raise ConfigError("this experiment defines variants; their names are the tags, so --tag does not apply")
     return dataclasses.replace(experiment, tag=validate_tag(tag))
 
 
 def capture_dir_for(experiment: ExperimentConfig, settings: LocalSettings,
                     now: datetime | None = None) -> Path:
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
-    return Path(settings.capture_root) / f"{experiment.name}_{experiment.tag}_{stamp}"
+    label = "-vs-".join(name for name, _ in experiment.variants) if experiment.variants else experiment.tag
+    return Path(settings.capture_root) / f"{experiment.name}_{label}_{stamp}"
 
 
 def manual_instructions(run: RunConfig, process_name: str) -> str:
@@ -188,6 +191,9 @@ def capture_run(experiment: ExperimentConfig, run: RunConfig, run_index: int,
         files = _capture_presentmon(experiment, run, run_id, runner, settings, out_dir)
 
     cap = experiment.capture
+    notes = [files.pop("notes", "")]
+    if run.extra_args:
+        notes.append("args=" + " ".join(run.extra_args))
     return {
         "run_id": run_id,
         "experiment": run.experiment,
@@ -204,7 +210,7 @@ def capture_run(experiment: ExperimentConfig, run: RunConfig, run_index: int,
         "warmup_s": cap.warmup_s,
         "data_kind": "real",
         "frameview_csv": "",  # attached later with: gfl validate --frameview-dir
-        "notes": "",
+        "notes": "; ".join(n for n in notes if n),
         **files,
     }
 
@@ -276,15 +282,13 @@ def run_experiment(experiment: ExperimentConfig, runner: Runner, settings: Local
     output folder is not created.
     """
     rows: list[dict] = []
-    runs = experiment.expand()
+    order = experiment.capture_order()
     if write_files:
         out_dir.mkdir(parents=True, exist_ok=True)
-    for n, run in enumerate(runs, start=1):
-        for run_index in range(1, experiment.capture.runs + 1):
-            rows.append(capture_run(experiment, run, run_index, runner, settings, out_dir))
-            if write_files:
-                write_manifest(rows, out_dir)
-            last = n == len(runs) and run_index == experiment.capture.runs
-            if not last:
-                runner.wait(experiment.capture.cooldown_s, "cooldown between runs")
+    for n, (run, run_index) in enumerate(order, start=1):
+        rows.append(capture_run(experiment, run, run_index, runner, settings, out_dir))
+        if write_files:
+            write_manifest(rows, out_dir)
+        if n < len(order):
+            runner.wait(experiment.capture.cooldown_s, "cooldown between runs")
     return rows

@@ -66,6 +66,7 @@ def build_unreal_command(scene: SceneConfig, run: RunConfig) -> list[str]:
         "-ExecCmds=" + ", ".join(console_commands(run)),
     ]
     command.extend(scene.extra_args)
+    command.extend(run.extra_args)
     return command
 
 
@@ -80,6 +81,7 @@ def build_gflbench_command(scene: SceneConfig, run: RunConfig, output_csv, durat
         "--duration", f"{duration_s:g}",
         "--output", str(output_csv),
         *scene.extra_args,
+        *run.extra_args,
     ]
 
 

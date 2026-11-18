@@ -98,6 +98,8 @@ class RunConfig:
     frame_generation: bool
     inference_streams: int
     tag: str
+    # Extra command-line arguments for this run only (set by a variant).
+    extra_args: tuple[str, ...] = ()
 
     @property
     def config_id(self) -> str:
@@ -120,10 +122,18 @@ class ExperimentConfig:
     dlss_modes: tuple[str, ...] = ("native",)
     frame_generation: tuple[bool, ...] = (False,)
     inference_streams: tuple[int, ...] = (0,)
+    # Before/after studies: (tag, extra args) pairs, e.g. ("baseline", ()) and
+    # ("fix", ("--shadows-scale", "0.5")). Each variant becomes its own config
+    # with that tag. Empty for ordinary experiments.
+    variants: tuple[tuple[str, tuple[str, ...]], ...] = ()
     source_path: Path | None = field(default=None, compare=False)
 
     def expand(self) -> list[RunConfig]:
-        """Cartesian product of the matrix, in a stable, readable order."""
+        """Cartesian product of the matrix, in a stable, readable order.
+
+        With variants, the variants of one matrix point are adjacent (variant
+        is the innermost loop); capture_order relies on that.
+        """
         combos = itertools.product(
             self.presets,
             self.resolutions,
@@ -131,10 +141,29 @@ class ExperimentConfig:
             self.frame_generation,
             self.inference_streams,
         )
+        variants = self.variants or ((self.tag, ()),)
         return [
-            RunConfig(self.name, self.scene.name, p, r, d, fg, s, self.tag)
+            RunConfig(self.name, self.scene.name, p, r, d, fg, s, tag, args)
             for p, r, d, fg, s in combos
+            for tag, args in variants
         ]
+
+    def capture_order(self) -> list[tuple[RunConfig, int]]:
+        """(config, run number) pairs in the order they should be captured.
+
+        Variants of the same matrix point are interleaved run by run
+        (baseline 1, fix 1, baseline 2, fix 2, ...). Slow drift during a session,
+        such as a fanless laptop heating up, then affects every variant
+        equally instead of making whichever variant ran last look slower.
+        """
+        runs = self.expand()
+        group_size = max(1, len(self.variants))
+        order = []
+        for start in range(0, len(runs), group_size):
+            group = runs[start:start + group_size]
+            for run_index in range(1, self.capture.runs + 1):
+                order.extend((run, run_index) for run in group)
+        return order
 
 
 # --------------------------------------------------------------------------- #
@@ -164,6 +193,9 @@ def parse_experiment(raw: dict[str, Any], source_path: Path | None = None) -> Ex
     scene = _parse_scene(_require(raw, "scene", dict))
     capture = _parse_capture(raw.get("capture") or {})
     tag = validate_tag(str(raw.get("tag", "baseline")))
+    variants = _parse_variants(raw.get("variants"))
+    if variants and "tag" in raw:
+        raise ConfigError("use either tag or variants, not both (each variant name is its tag)")
 
     matrix = _require(raw, "matrix", dict)
     presets = tuple(str(p).lower() for p in _as_list(_require(matrix, "preset", (list, str))))
@@ -213,8 +245,25 @@ def parse_experiment(raw: dict[str, Any], source_path: Path | None = None) -> Ex
         dlss_modes=dlss_modes,
         frame_generation=frame_gen,
         inference_streams=streams,
+        variants=variants,
         source_path=source_path,
     )
+
+
+def _parse_variants(raw: Any) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict) or len(raw) < 2:
+        raise ConfigError("variants must map at least two names to argument lists, "
+                          "e.g. {baseline: [], fix: [--shadows-scale, '0.5']}")
+    parsed = []
+    for name, args in raw.items():
+        validate_tag(str(name))
+        args = args or []
+        if not isinstance(args, list):
+            raise ConfigError(f"variant {name!r} must be a list of arguments")
+        parsed.append((str(name), tuple(str(a) for a in args)))
+    return tuple(parsed)
 
 
 def validate_tag(tag: str) -> str:
