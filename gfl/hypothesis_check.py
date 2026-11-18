@@ -20,7 +20,7 @@ def ensure_real_data(run_dirs: list[Path]) -> None:
     for run_dir in run_dirs:
         manifest = read_manifest(run_dir)
         synthetic = manifest[manifest["data_kind"] != "real"]
-        named = manifest[manifest["presentmon_csv"].str.lower().str.contains("synthetic")]
+        named = manifest[manifest["frames_csv"].str.lower().str.contains("synthetic")]
         if not synthetic.empty or not named.empty:
             raise SyntheticDataError(
                 f"{run_dir} contains synthetic runs. Hypotheses are only checked against "

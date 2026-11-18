@@ -19,6 +19,11 @@ MANIFEST_NAME = "manifest.csv"
 
 DATA_KINDS = ("synthetic", "real")
 
+# presentmon: PresentMon CSV (Windows).
+# gflbench:   the Metal benchmark renderer in bench/metal (macOS). It writes the
+#             same column names as PresentMon plus per-pass GPU times.
+CAPTURE_TOOLS = ("presentmon", "gflbench")
+
 MANIFEST_COLUMNS = [
     "run_id",            # unique within the directory, e.g. <config_id>_run1
     "experiment",
@@ -34,7 +39,8 @@ MANIFEST_COLUMNS = [
     "duration_s",
     "warmup_s",
     "data_kind",         # "synthetic" or "real"
-    "presentmon_csv",    # paths relative to the manifest's directory
+    "capture_tool",      # which tool wrote frames_csv: see CAPTURE_TOOLS
+    "frames_csv",        # per-frame log; paths are relative to the manifest's directory
     "frameview_csv",     # optional (empty if FrameView was not recorded)
     "telemetry_csv",     # optional nvidia-smi log (VRAM, GPU utilization)
     "captured_at",       # ISO 8601 timestamp
@@ -58,6 +64,10 @@ def read_manifest(run_dir: str | Path) -> pd.DataFrame:
             "(for example data/sample/synthetic_lyra_scalability)."
         )
     df = pd.read_csv(path, dtype={"resolution": str, "tag": str, "notes": str})
+    # Manifests written before the macOS capture path had one PresentMon column.
+    if "presentmon_csv" in df.columns and "frames_csv" not in df.columns:
+        df = df.rename(columns={"presentmon_csv": "frames_csv"})
+        df["capture_tool"] = "presentmon"
     missing = [c for c in MANIFEST_COLUMNS if c not in df.columns]
     if missing:
         raise ManifestError(f"{path} is missing columns: {missing}")
@@ -69,13 +79,16 @@ def read_manifest(run_dir: str | Path) -> pd.DataFrame:
     bad_kind = set(df["data_kind"]) - set(DATA_KINDS)
     if bad_kind:
         raise ManifestError(f"{path}: data_kind must be one of {DATA_KINDS}, got {bad_kind}")
+    bad_tool = set(df["capture_tool"]) - set(CAPTURE_TOOLS)
+    if bad_tool:
+        raise ManifestError(f"{path}: capture_tool must be one of {CAPTURE_TOOLS}, got {bad_tool}")
 
     for col in _OPTIONAL_PATH_COLUMNS + ("notes",):
         df[col] = df[col].fillna("").astype(str)
 
     # A file whose name says "synthetic" must never be labeled as real data.
     for _, row in df.iterrows():
-        named_synthetic = "synthetic" in str(row["presentmon_csv"]).lower()
+        named_synthetic = "synthetic" in str(row["frames_csv"]).lower()
         if named_synthetic and row["data_kind"] != "synthetic":
             raise ManifestError(
                 f"{path}: run {row['run_id']} points at a synthetic file but is "

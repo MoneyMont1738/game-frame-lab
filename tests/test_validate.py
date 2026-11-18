@@ -86,7 +86,7 @@ def test_attach_frameview_matches_logs_by_time(tmp_path):
     cap = tmp_path / "cap"
     cap.mkdir()
     manifest = pd.read_csv(SAMPLE / "manifest.csv").head(2)
-    for name in manifest["presentmon_csv"]:
+    for name in manifest["frames_csv"]:
         shutil.copy(SAMPLE / name, cap / name)
     manifest["frameview_csv"] = ""
     manifest["telemetry_csv"] = ""

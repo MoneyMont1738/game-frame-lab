@@ -166,9 +166,9 @@ def validate_directory(run_dir: str | Path) -> tuple[pd.DataFrame, str]:
     rows = []
     for _, row in manifest.iterrows():
         fv_path = mf.resolve(run_dir, row["frameview_csv"])
-        if fv_path is None:
+        if fv_path is None or row["capture_tool"] != "presentmon":
             continue
-        pm = load_presentmon_csv(mf.resolve(run_dir, row["presentmon_csv"]))
+        pm = load_presentmon_csv(mf.resolve(run_dir, row["frames_csv"]))
         fv = load_frameview_csv(fv_path)
         rows.append(validate_pair(row["run_id"], pm, fv, row["warmup_s"], row["duration_s"]).as_dict())
     if not rows:
