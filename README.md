@@ -6,24 +6,30 @@ NVIDIA RTX 40-series GPU, covering scalability presets, Nsight GPU trace
 analysis, DLSS comparisons, and AI inference contention.
 
 The toolkit is developed and tested on machines without an NVIDIA GPU. The
-NVIDIA capture path runs on a Windows PC with an RTX 40-series card; a macOS
-capture path for Apple silicon is planned so the toolkit can also measure real
-games on hardware without NVIDIA.
+NVIDIA capture path runs on a Windows PC with an RTX 40-series card and has not
+been run yet. The macOS capture path runs gflbench, a Metal renderer written for
+this project, and has produced the first real results below.
 
 ## Results summary
 
-> **Placeholder: no real benchmark data has been captured yet.**
-> This section will show one chart and three findings from real captures.
-> Until it is filled in, nothing in this repository is a measured result. The
-> sample data in `data/sample/` is synthetic and exists only to test the code.
+**Apple M3 MacBook Air, gflbench Metal renderer, 36 runs (real measurements).**
+Full write-up for readers new to the topic:
+[Lab report: how graphics settings change GPU work on an Apple M3](reports/lab_report_apple_m3_scalability.md).
 
-**Chart:** pending real data.
+![Share of GPU time per render pass at 3840x2160, by preset](reports/figures/m3_pass_share_3840x2160.png)
 
-**Findings:**
+1. **The bottleneck moves with the preset.** At Low, finding surfaces (the
+   gbuffer pass) is 52% of GPU time at 4K; at Epic, soft shadows are 50%. The
+   split is nearly identical at every resolution.
+2. **GPU-bound frame time follows pixel count.** High at 2560x1440 to 3840x2160
+   is 2.25x the pixels and took 2.26x longer per frame.
+3. **Epic costs 7.1x the GPU time of Low** at 3840x2160 (181.5 ms vs 25.7 ms
+   per frame). On this fanless laptop, 4 of 12 configs varied by more than 5%
+   between runs and need re-measurement before their numbers are quoted.
 
-1. Pending: where the GPU time goes at Epic/4K (Nsight Graphics GPU Trace).
-2. Pending: frame time saved by one targeted fix, before vs. after.
-3. Pending: DLSS FPS gain and VRAM cost per mode vs. native, Lyra and Cyberpunk 2077.
+The NVIDIA results (Unreal Engine 5, DLSS, inference contention) are still
+pending hardware. The sample data in `data/sample/` is synthetic and exists only
+to test the code.
 
 ## What the study measures
 
@@ -52,7 +58,7 @@ captures; `gfl hypothesis-check` refuses to run on synthetic data.
 |---|---|---|
 | 1 | Config schema, PresentMon and FrameView parsers, metrics, synthetic sample data, tests, `gfl analyze` | Done |
 | 2 | Windows run automation (game launch, PresentMon capture, VRAM logging), FrameView validation | Done (built and tested without hardware; not yet run on Windows) |
-| 2b | macOS capture path: gflbench Metal renderer with per-pass GPU timing | Built and tested without a Mac; first run on an Apple M3 pending |
+| 2b | macOS capture path: gflbench Metal renderer with per-pass GPU timing | Done: 36 runs on an Apple M3, see the [lab report](reports/lab_report_apple_m3_scalability.md) |
 | 3 | DLSS experiments and `gfl compare` | Planned |
 | 4 | TensorRT inference load generator and contention analysis | Planned |
 | 5 | Lumen before/after study | Planned |
@@ -249,6 +255,7 @@ manifests, tables, and charts, and never used for findings. See
 ```
 bench/metal/    gflbench: Metal benchmark renderer (Swift, one file) and build script
 configs/        experiment YAML files and schema reference
+reports/        lab reports and their figures
 docs/           Windows run book
 gfl/            Python package
   cli.py          gfl command line (typer)
@@ -267,7 +274,8 @@ gfl/            Python package
 inference/      TensorRT load generator (later phase)
 data/sample/    synthetic sample captures (committed)
 data/raw/       real captures (gitignored)
-results/        summary CSVs and charts
+results/        summary CSVs and charts (real results under results/<experiment>/)
+scripts/        helper scripts (redraw report charts from a summary CSV)
 tests/          pytest suite
 ```
 
