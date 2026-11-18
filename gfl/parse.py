@@ -23,6 +23,7 @@ DLSS phase.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -161,6 +162,75 @@ def load_gpu_telemetry_csv(path: str | Path) -> pd.DataFrame:
         }
     )
     return telemetry.dropna(subset=["vram_used_mib"]).sort_values("time_s").reset_index(drop=True)
+
+
+# --------------------------------------------------------------------------- #
+# gflbench (the Metal benchmark renderer in bench/metal, macOS)
+# --------------------------------------------------------------------------- #
+
+# gflbench writes PresentMon's column names for the shared metrics, so the same
+# definitions apply: CPUStartTime (seconds since the run started),
+# MsBetweenPresents (interval between present calls), MsGPUBusy (sum of the
+# frame's pass GPU times), MsGPUTime (first pass start to last pass end). It
+# adds one MsPass_<name> column per render pass and MetalAllocatedMiB, the
+# Metal memory the benchmark process has allocated (Apple silicon has unified
+# memory, so there is no separate device-wide VRAM number).
+GFLBENCH_PASS_PREFIX = "MsPass_"
+
+
+@dataclass
+class GflbenchLog:
+    frames: pd.DataFrame  # canonical frame table (FRAME_COLUMNS)
+    passes: pd.DataFrame  # time_s plus one column of GPU ms per pass
+    memory: pd.DataFrame  # same layout as load_gpu_telemetry_csv (TELEMETRY_COLUMNS)
+
+    @property
+    def pass_names(self) -> list[str]:
+        return [c for c in self.passes.columns if c != "time_s"]
+
+
+def load_gflbench_csv(path: str | Path) -> GflbenchLog:
+    raw = _read_csv(path)
+    cols = _resolve_columns(raw, _PRESENTMON_ALIASES, path, required=("time", "frametime"))
+    pass_cols = [c for c in raw.columns if c.startswith(GFLBENCH_PASS_PREFIX)]
+    if not pass_cols:
+        raise ParseError(f"{path}: no {GFLBENCH_PASS_PREFIX}* columns; is this a gflbench log?")
+    pass_names = [c[len(GFLBENCH_PASS_PREFIX):] for c in pass_cols]
+
+    combined = pd.DataFrame(
+        {
+            "time_s": pd.to_numeric(raw[cols["time"]], errors="coerce"),
+            "frametime_ms": pd.to_numeric(raw[cols["frametime"]], errors="coerce"),
+            "gpu_busy_ms": _optional(raw, cols.get("gpu_busy")),
+            "gpu_time_ms": _optional(raw, cols.get("gpu_time")),
+            "cpu_busy_ms": _optional(raw, cols.get("cpu_busy")),
+            "gpu_util_pct": np.nan,
+            "vram_used_mib": _optional(raw, "MetalAllocatedMiB" if "MetalAllocatedMiB" in raw else None),
+            **{name: pd.to_numeric(raw[col], errors="coerce") for name, col in zip(pass_names, pass_cols)},
+        }
+    )
+    # Same cleaning as the other parsers, applied once so the three tables stay
+    # row-aligned (the first frame has no previous present, so no frame time).
+    combined = combined.dropna(subset=["time_s", "frametime_ms"])
+    combined = combined[combined["frametime_ms"] > 0]
+    if combined.empty:
+        raise ParseError(f"{path}: no valid frames")
+    combined = _rebase(combined.sort_values("time_s").reset_index(drop=True))
+    memory = combined[["time_s", "vram_used_mib", "gpu_util_pct"]].dropna(subset=["vram_used_mib"])
+    return GflbenchLog(
+        frames=combined[FRAME_COLUMNS].copy(),
+        passes=combined[["time_s", *pass_names]].copy(),
+        memory=memory.reset_index(drop=True),
+    )
+
+
+def load_frames(path: str | Path, capture_tool: str) -> pd.DataFrame:
+    """Canonical frame table from any supported per-frame log."""
+    if capture_tool == "presentmon":
+        return load_presentmon_csv(path)
+    if capture_tool == "gflbench":
+        return load_gflbench_csv(path).frames
+    raise ParseError(f"unknown capture tool {capture_tool!r}")
 
 
 # --------------------------------------------------------------------------- #

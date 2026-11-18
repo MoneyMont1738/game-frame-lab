@@ -54,16 +54,20 @@ def _figure(nrows: int = 1, height: float = 4.5, **kwargs):
 
 
 def _finish(fig: plt.Figure, title: str, path: Path, banner: str | None) -> Path:
-    # Fixed vertical stack (figure fractions): banner, title, legend row, plot.
-    title_y = 0.93 if banner else 0.975
-    fig.suptitle(title, x=0.01, y=title_y, ha="left", va="top", fontsize=13, color=TEXT,
-                 weight="bold")
+    # Fixed vertical stack in inches (banner, title, legend row, plot, x label),
+    # so the layout holds for any figure height.
+    h = fig.get_figheight()
+    banner_in = 0.32 if banner else 0.0
+    title_top_in = 0.1 + banner_in
+    plot_top_in = title_top_in + 0.42 + 0.62  # title, then a legend row (with title)
+    fig.suptitle(title, x=0.01, y=1 - title_top_in / h, ha="left", va="top", fontsize=13,
+                 color=TEXT, weight="bold")
     if banner:
-        fig.text(0.01, 0.985, banner, ha="left", va="top", fontsize=8.5, color=BANNER,
+        fig.text(0.01, 1 - 0.08 / h, banner, ha="left", va="top", fontsize=8.5, color=BANNER,
                  weight="bold")
         fig.text(0.5, 0.45, "SYNTHETIC", ha="center", va="center", rotation=25,
                  fontsize=80, color=BANNER, alpha=0.07, weight="bold")
-    fig.subplots_adjust(left=0.15, right=0.98, bottom=0.12, top=title_y - 0.16)
+    fig.subplots_adjust(left=0.15, right=0.98, bottom=0.62 / h, top=1 - plot_top_in / h)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=150, facecolor=SURFACE)
     plt.close(fig)
@@ -122,3 +126,37 @@ def fps_by_config(summary: pd.DataFrame, path: Path, banner: str | None = None) 
     ax.legend(frameon=False, ncols=len(presets) + 1, loc="lower left",
               bbox_to_anchor=(0, 1.01), fontsize=9)
     return _finish(fig, "Average FPS and 1% low by preset and resolution", path, banner)
+
+
+# Render passes get their own fixed colors (categorical slots 5 to 8), so they
+# never look like presets, which use slots 1 to 4.
+PASS_COLORS = ["#e87ba4", "#008300", "#6250d6", "#e34948"]
+
+
+def gpu_time_by_pass(summary: pd.DataFrame, pass_cols: list[str], path: Path,
+                     banner: str | None = None) -> Path:
+    """Mean GPU ms per frame, split by render pass, one bar per config.
+
+    This is the "where does the GPU time go" view: the analog of a GPU trace's
+    per-pass breakdown, from timestamps the renderer records itself.
+    """
+    rows = summary.iloc[::-1]  # first config at the top
+    labels = [f"{p.capitalize()} {r}" for p, r in zip(rows["preset"], rows["resolution"])]
+    fig, (ax,) = _figure(height=max(4.0, 0.45 * len(rows) + 2.6))
+    _style(ax)
+    ax.grid(axis="y", visible=False)
+    ax.grid(axis="x", color=GRID, linewidth=0.8)
+    left = np.zeros(len(rows))
+    for col, color in zip(pass_cols, PASS_COLORS):
+        values = rows[col].to_numpy()
+        name = col.removeprefix("pass_").removesuffix("_ms")
+        ax.barh(labels, values, left=left, color=color, height=0.62, label=name,
+                edgecolor=SURFACE, linewidth=1)
+        left += values
+    for y, total in enumerate(left):
+        ax.text(total, y, f"  {total:.1f} ms", va="center", fontsize=8.5, color=TEXT_SECONDARY)
+    ax.set_xlim(0, left.max() * 1.15)
+    ax.set_xlabel("Mean GPU time per frame (ms)", color=TEXT_SECONDARY)
+    ax.legend(title="Render pass", frameon=False, ncols=len(pass_cols), loc="lower left",
+              bbox_to_anchor=(0, 1.01), fontsize=9, title_fontsize=9, alignment="left")
+    return _finish(fig, "Where the GPU time goes, by render pass", path, banner)

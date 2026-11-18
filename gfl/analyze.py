@@ -11,7 +11,7 @@ from gfl import manifest as mf
 from gfl import plots
 from gfl.config import PRESET_LEVELS, Resolution
 from gfl.metrics import compute_run_metrics, summarize_runs, trim_window
-from gfl.parse import load_gpu_telemetry_csv, load_presentmon_csv
+from gfl.parse import load_gflbench_csv, load_gpu_telemetry_csv, load_presentmon_csv
 from gfl.tables import markdown_table
 
 CONFIG_KEYS = [
@@ -45,16 +45,35 @@ def default_out_dir(manifest: pd.DataFrame) -> Path:
     return Path("results") / ("synthetic" if synthetic else "") / experiment
 
 
-def load_run_frames(run_dir: Path, row: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame | None]:
-    """Parse and trim one run's PresentMon log and (optional) telemetry log."""
-    frames = load_presentmon_csv(mf.resolve(run_dir, row["presentmon_csv"]))
-    frames = trim_window(frames, row["warmup_s"], row["duration_s"])
+@dataclass
+class RunData:
+    frames: pd.DataFrame                  # trimmed canonical frame table
+    telemetry: pd.DataFrame | None        # trimmed memory / utilization samples
+    passes: pd.DataFrame | None           # trimmed per-pass GPU ms (gflbench only)
 
+
+def load_run(run_dir: Path, row: pd.Series) -> RunData:
+    """Parse one run's logs and trim them all to the same measured window."""
+    window = (row["warmup_s"], row["duration_s"])
+    frames_path = mf.resolve(run_dir, row["frames_csv"])
+    if row["capture_tool"] == "gflbench":
+        log = load_gflbench_csv(frames_path)
+        return RunData(trim_window(log.frames, *window),
+                       trim_window(log.memory, *window) if not log.memory.empty else None,
+                       trim_window(log.passes, *window))
+
+    frames = trim_window(load_presentmon_csv(frames_path), *window)
     telemetry = None
     tel_path = mf.resolve(run_dir, row["telemetry_csv"])
     if tel_path is not None:
-        telemetry = trim_window(load_gpu_telemetry_csv(tel_path), row["warmup_s"], row["duration_s"])
-    return frames, telemetry
+        telemetry = trim_window(load_gpu_telemetry_csv(tel_path), *window)
+    return RunData(frames, telemetry, None)
+
+
+def pass_means(passes: pd.DataFrame) -> dict[str, float]:
+    """Mean GPU ms per frame for each render pass: where the GPU time goes."""
+    return {f"pass_{name}_ms": float(passes[name].mean())
+            for name in passes.columns if name != "time_s"}
 
 
 def analyze(run_dir: str | Path, out_dir: str | Path | None = None,
@@ -71,19 +90,23 @@ def analyze(run_dir: str | Path, out_dir: str | Path | None = None,
     # 1. Per-run metrics. Keep run 1's trimmed frames for the trace chart.
     per_run_rows, traces = [], {}
     for _, row in manifest.iterrows():
-        frames, telemetry = load_run_frames(run_dir, row)
-        metrics = compute_run_metrics(frames, telemetry)
-        per_run_rows.append({**row[CONFIG_KEYS + ["run_id", "run_index"]].to_dict(),
-                             **metrics.as_dict()})
+        data = load_run(run_dir, row)
+        metrics = compute_run_metrics(data.frames, data.telemetry)
+        per_run_rows.append({**row[CONFIG_KEYS + ["run_id", "run_index", "capture_tool"]].to_dict(),
+                             **metrics.as_dict(),
+                             **(pass_means(data.passes) if data.passes is not None else {})})
         if row["run_index"] == 1:
-            traces[row["config_id"]] = frames
+            traces[row["config_id"]] = data.frames
     per_run = _sort_configs(pd.DataFrame(per_run_rows))
     per_run["data_kind"] = data_kind
 
     # 2. One summary row per config (mean across runs + run-to-run spread).
+    pass_cols = [c for c in per_run.columns if c.startswith("pass_") and c.endswith("_ms")]
     summary_rows = []
     for _, group in per_run.groupby("config_id", sort=False):
-        summary_rows.append({**group.iloc[0][CONFIG_KEYS].to_dict(), **summarize_runs(group)})
+        summary_rows.append({**group.iloc[0][CONFIG_KEYS + ["capture_tool"]].to_dict(),
+                             **summarize_runs(group),
+                             **{c: float(group[c].mean()) for c in pass_cols}})
     summary = _sort_configs(pd.DataFrame(summary_rows))
     summary["data_kind"] = data_kind
 
@@ -116,6 +139,12 @@ def analyze(run_dir: str | Path, out_dir: str | Path | None = None,
         path=out_dir / f"{prefix}fps_by_preset_and_resolution.png",
         banner=banner,
     ))
+    if pass_cols:
+        result.outputs.append(plots.gpu_time_by_pass(
+            summary, pass_cols,
+            path=out_dir / f"{prefix}gpu_time_by_pass.png",
+            banner=banner,
+        ))
     return result
 
 
@@ -141,6 +170,10 @@ def summary_display_table(summary: pd.DataFrame) -> pd.DataFrame:
         table[col] = table[col].map(lambda v, d=digits: "n/a" if pd.isna(v) else f"{v:.{d}f}")
     flagged = summary["low_01pct_low_confidence"].to_numpy()
     table.loc[flagged, "0.1% low"] = table.loc[flagged, "0.1% low"] + "*"
+    if (summary["capture_tool"] == "gflbench").all():
+        # On Apple silicon the memory number is the benchmark's Metal allocation
+        # in unified memory, not device-wide VRAM. Label it for what it is.
+        table = table.rename(columns={"VRAM peak MiB": "Metal mem peak MiB"})
     return table
 
 
