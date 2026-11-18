@@ -1,6 +1,7 @@
 """Generate SYNTHETIC capture logs so the pipeline runs without a GPU.
 
-Run:  python -m gfl.synthetic   (writes data/sample/synthetic_lyra_scalability/)
+Run:  python -m gfl.synthetic
+      (writes data/sample/synthetic_lyra_scalability/ and data/sample/synthetic_metal_bench/)
 
 Everything this module writes is labeled synthetic: file names start with
 SYNTHETIC_, the manifest marks data_kind=synthetic, the process name in the logs
@@ -197,7 +198,8 @@ def generate(config_path: Path = DEFAULT_CONFIG, out_dir: Path = DEFAULT_OUT) ->
                     "duration_s": cap.duration_s,
                     "warmup_s": cap.warmup_s,
                     "data_kind": "synthetic",
-                    "presentmon_csv": pm_name,
+                    "capture_tool": "presentmon",
+                    "frames_csv": pm_name,
                     "frameview_csv": fv_name,
                     "telemetry_csv": smi_name,
                     "captured_at": clock.isoformat(),
@@ -209,6 +211,100 @@ def generate(config_path: Path = DEFAULT_CONFIG, out_dir: Path = DEFAULT_OUT) ->
     return write_manifest(manifest_rows, out_dir)
 
 
+# --------------------------------------------------------------------------- #
+# gflbench (Metal benchmark) sample
+# --------------------------------------------------------------------------- #
+
+METAL_CONFIG = Path("configs/metal_scalability.yaml")
+METAL_OUT = Path("data/sample/synthetic_metal_bench")
+# The sample uses one resolution to keep the repository small; the real
+# experiment covers all three.
+METAL_SAMPLE_RESOLUTIONS = ("2560x1440",)
+
+# Invented per-pass GPU cost (ms) at 1080p, by preset. Like everything in this
+# module, these are not estimates of any real GPU.
+_PASS_MS_AT_1080P = {
+    "gbuffer":   {"low": 1.2, "medium": 1.8, "high": 2.6, "epic": 3.8},
+    "shadows":   {"low": 0.8, "medium": 2.0, "high": 4.0, "epic": 7.5},
+    "ao":        {"low": 0.6, "medium": 1.4, "high": 2.6, "epic": 4.2},
+    "composite": {"low": 0.3, "medium": 0.3, "high": 0.35, "epic": 0.4},
+}
+_METAL_CPU_MS = 1.6
+
+
+def simulate_gflbench_frames(run: RunConfig, run_index: int, duration_s: float) -> pd.DataFrame:
+    rng = np.random.default_rng(_seed("gflbench", run.config_id, run_index))
+    scale = run.resolution.pixels / (1920 * 1080)
+    base = {name: costs[run.preset] * (0.1 + 0.9 * scale) for name, costs in _PASS_MS_AT_1080P.items()}
+    run_factor = rng.normal(1.0, 0.006)
+    rows, t, drift = [], 0.0, 0.0
+    while t < duration_s:
+        drift = 0.97 * drift + rng.normal(0, 0.003)
+        load = run_factor * (1.0 + 0.05 * np.sin(2 * np.pi * t / 20.0) + drift)
+        passes = {name: ms * load * rng.lognormal(0, 0.03) for name, ms in base.items()}
+        gpu = sum(passes.values())
+        cpu = _METAL_CPU_MS * rng.lognormal(0, 0.08)
+        frame = max(cpu, gpu) + 0.1
+        if rng.random() < 0.05 * frame / 1000.0:  # rare hitch
+            frame *= rng.uniform(1.8, 3.0)
+        rows.append({"t": t, "frametime": frame, "cpu_busy": cpu, "gpu_busy": gpu, **passes})
+        t += frame / 1000.0
+    return pd.DataFrame(rows)
+
+
+def to_gflbench(sim: pd.DataFrame, run: RunConfig) -> pd.DataFrame:
+    """The column layout bench/metal/GFLBench.swift writes."""
+    level = PRESET_LEVELS[run.preset]
+    scale = run.resolution.pixels / (1920 * 1080)
+    present_interval = sim["frametime"].shift(1)  # interval since the previous present
+    return pd.DataFrame({
+        "Application": "gflbench",
+        "ProcessID": 4242,
+        "SwapChainAddress": "CAMetalLayer",
+        "PresentRuntime": "Metal",
+        "SyncInterval": 0,
+        "PresentFlags": 0,
+        "AllowsTearing": 0,
+        "PresentMode": "CAMetalLayer",
+        "CPUStartTime": sim["t"].round(6),
+        "MsCPUBusy": sim["cpu_busy"].round(4),
+        "MsGPUTime": (sim["gpu_busy"] * 1.01).round(4),
+        "MsGPUBusy": sim["gpu_busy"].round(4),
+        "MsBetweenPresents": present_interval.round(4),
+        "MsBetweenDisplayChange": present_interval.round(4),
+        **{f"MsPass_{name}": sim[name].round(4) for name in _PASS_MS_AT_1080P},
+        "MetalAllocatedMiB": round(180 + 40 * level + 120 * scale, 1),
+    })
+
+
+def generate_metal(config_path: Path = METAL_CONFIG, out_dir: Path = METAL_OUT) -> Path:
+    experiment = load_experiment(config_path)
+    cap = experiment.capture
+    out_dir.mkdir(parents=True, exist_ok=True)
+    clock = datetime(2026, 1, 1, 12, 0, 0)
+    rows = []
+    for run in experiment.expand():
+        if str(run.resolution) not in METAL_SAMPLE_RESOLUTIONS:
+            continue
+        for run_index in range(1, cap.runs + 1):
+            run_id = f"{run.config_id}_run{run_index}"
+            name = f"SYNTHETIC_gflbench_{run_id}.csv.gz"
+            sim = simulate_gflbench_frames(run, run_index, cap.duration_s)
+            _write_gz(to_gflbench(sim, run), out_dir / name)
+            rows.append({
+                "run_id": run_id, "experiment": run.experiment, "config_id": run.config_id,
+                "scene": run.scene, "preset": run.preset, "resolution": str(run.resolution),
+                "dlss_mode": run.dlss_mode, "frame_generation": run.frame_generation,
+                "inference_streams": run.inference_streams, "tag": run.tag,
+                "run_index": run_index, "duration_s": cap.duration_s, "warmup_s": cap.warmup_s,
+                "data_kind": "synthetic", "capture_tool": "gflbench", "frames_csv": name,
+                "frameview_csv": "", "telemetry_csv": "",
+                "captured_at": clock.isoformat(), "notes": NOTE,
+            })
+            clock += timedelta(seconds=cap.duration_s + cap.cooldown_s)
+    return write_manifest(rows, out_dir)
+
+
 def _write_gz(df: pd.DataFrame, path: Path) -> None:
     # mtime=0 keeps the gzip bytes identical between regenerations (clean diffs).
     with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
@@ -216,5 +312,5 @@ def _write_gz(df: pd.DataFrame, path: Path) -> None:
 
 
 if __name__ == "__main__":
-    manifest = generate()
-    print(f"Wrote SYNTHETIC sample data. Manifest: {manifest}")
+    for manifest in (generate(), generate_metal()):
+        print(f"Wrote SYNTHETIC sample data. Manifest: {manifest}")

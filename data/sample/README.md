@@ -27,6 +27,13 @@ The per-frame logs are gzipped to keep the repository small; the parsers read
 `.csv` and `.csv.gz` the same way. Real captures are plain CSV and live in
 `data/raw/`, which is gitignored.
 
+## Contents of `synthetic_metal_bench/`
+
+The 4 presets of `configs/metal_scalability.yaml` at 2560x1440 only (to keep
+the repository small), 3 runs each (12 runs), in the log format that
+`bench/metal/GFLBench.swift` writes: PresentMon column names plus GPU time per
+render pass and Metal memory.
+
 ## What the generator models
 
 The cost model in `gfl/synthetic.py` is invented. It is shaped so the analysis
@@ -39,7 +46,7 @@ code meets the situations a real capture produces:
   and streaming), which is why the warmup is dropped
 - small run-to-run differences
 
-It is not an estimate of any real GPU or of Lyra performance.
+It is not an estimate of any real GPU, of Lyra, or of the gflbench renderer.
 
 ## Regenerate
 
