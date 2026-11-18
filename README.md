@@ -89,7 +89,13 @@ time per render pass. Example:
 ## macOS setup (Apple silicon)
 
 The macOS path runs gflbench, the Metal benchmark renderer in `bench/metal`. It
-needs the free Xcode command line tools, not the full Xcode app.
+needs Python 3.11 or newer (the Python that ships with macOS is 3.9; install a
+current release from python.org) and the free Xcode command line tools, not the
+full Xcode app.
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
+```
 
 ```bash
 xcode-select --install
