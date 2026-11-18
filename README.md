@@ -21,11 +21,14 @@ Full write-up for readers new to the topic:
 1. **The bottleneck moves with the preset.** At Low, finding surfaces (the
    gbuffer pass) is 52% of GPU time at 4K; at Epic, soft shadows are 50%. The
    split is nearly identical at every resolution.
-2. **GPU-bound frame time follows pixel count.** High at 2560x1440 to 3840x2160
-   is 2.25x the pixels and took 2.26x longer per frame.
-3. **Epic costs 7.1x the GPU time of Low** at 3840x2160 (181.5 ms vs 25.7 ms
-   per frame). On this fanless laptop, 4 of 12 configs varied by more than 5%
-   between runs and need re-measurement before their numbers are quoted.
+2. **One targeted fix cut frame time by 16.8 ms (33.6%).** Rendering shadows at
+   half resolution took High 2560x1440 from 50.0 to 33.2 ms per frame (95%
+   interval of the saving: 15.6 to 18.0 ms), matching the saving predicted from
+   the per-pass measurements, with an image PSNR of 44 dB.
+3. **Cost follows pixels and settings.** GPU-bound frame time grew 2.26x for
+   2.25x the pixels, and Epic costs 7.1x the GPU time of Low at 3840x2160. On
+   this fanless laptop, 4 of 12 configs varied by more than 5% between runs and
+   need re-measurement before their numbers are quoted.
 
 The NVIDIA results (Unreal Engine 5, DLSS, inference contention) are still
 pending hardware. The sample data in `data/sample/` is synthetic and exists only
@@ -40,7 +43,7 @@ to test the code.
 | 2b | gflbench, a ray-marched Metal renderer written for this project, across 4 presets x 3 resolutions on Apple silicon, with GPU time per render pass | `configs/metal_scalability.yaml` |
 | 3 | DLSS Native, Quality, Balanced, Performance, with Frame Generation on and off, at 1440p and 4K, in Lyra and Cyberpunk 2077 | `configs/lyra_dlss.yaml`, `configs/cyberpunk_dlss.yaml` |
 | 4 | GPU contention: 0, 1, 2 concurrent Real-ESRGAN TensorRT inference streams while the game runs | `configs/lyra_contention.yaml` |
-| 5 | Before/after study of one targeted Lumen fix found with Nsight Graphics | `configs/lyra_lumen_fix.yaml` |
+| 5 | Before/after study of one targeted Lumen fix found with Nsight Graphics (NVIDIA); on the Mac, half-resolution shadows in gflbench | `configs/lyra_lumen_fix.yaml`, `configs/metal_shadow_fix.yaml` |
 
 Hypotheses under test (each will be reported as held or not held, with the
 measured value, in `results/hypotheses.md`):
@@ -61,7 +64,7 @@ captures; `gfl hypothesis-check` refuses to run on synthetic data.
 | 2b | macOS capture path: gflbench Metal renderer with per-pass GPU timing | Done: 36 runs on an Apple M3, see the [lab report](reports/lab_report_apple_m3_scalability.md) |
 | 3 | DLSS experiments and `gfl compare` | Planned |
 | 4 | TensorRT inference load generator and contention analysis | Planned |
-| 5 | Lumen before/after study | Planned |
+| 5 | Before/after study of one targeted fix | Done on the Mac: half-resolution shadows saved 16.8 ms per frame (see the lab report); the Lumen version needs NVIDIA hardware |
 | 6 | Report generator and `gfl hypothesis-check` | Planned |
 
 ## Try it without a GPU

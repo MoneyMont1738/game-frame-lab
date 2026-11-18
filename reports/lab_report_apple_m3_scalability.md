@@ -1,22 +1,23 @@
 # Lab Report: How Graphics Settings Change GPU Work on an Apple M3
 
-**Experiment:** `metal_scalability` (Phase 2b of Game Frame Lab)
+**Experiments:** `metal_scalability` (36 runs) and `metal_shadow_fix` (10 runs), Phases 2b and 5 of Game Frame Lab
 **Date run:** November 18, 2026
 **Hardware:** Apple M3 MacBook Air (fanless), macOS 26.5.1
 **Operator:** Jackson Montgomery
-**Status:** Complete. 36 of 36 runs captured and analyzed. All numbers in this report are real measurements.
+**Status:** Complete. 46 of 46 runs captured and analyzed. All numbers in this report are real measurements.
 
 ---
 
 ## Summary
 
-I wrote a small 3D renderer for the Mac, ran it at 4 quality settings and 3 screen sizes (12 combinations, 3 runs of each, 36 runs in total), and measured how long every frame took and how much of that time each step of the rendering took on the graphics chip.
+I wrote a small 3D renderer for the Mac, ran it at 4 quality settings and 3 screen sizes (12 combinations, 3 runs of each, 36 runs in total), and measured how long every frame took and how much of that time each step of the rendering took on the graphics chip. Then I used those measurements to pick one targeted fix and tested it before and after (10 more runs).
 
-Three findings:
+Four findings:
 
 1. **The most expensive step changes with the quality setting.** At Low, finding the surfaces in the scene takes about half of the graphics chip's time. From High upward, drawing shadows takes the most, about half the time at Epic. This split barely changes with screen size.
 2. **Once the graphics chip is the limit, work grows in step with the number of pixels.** Going from 2560x1440 to 3840x2160 at High means 2.25 times as many pixels, and each frame took 2.26 times as long.
 3. **Epic costs about 7 times as much graphics work per frame as Low** (182 ms vs 26 ms per frame at 3840x2160).
+4. **One targeted fix cut frame time by 16.8 ms (34%).** Drawing the shadows at half resolution took High 2560x1440 from 50.0 ms to 33.2 ms per frame (20.0 to 30.1 FPS). The saving came almost entirely from the shadow step, as predicted before the test, and the image barely changed.
 
 The data also shows the limits of measuring on a fanless laptop: 4 of the 12 combinations varied by more than 5% from run to run, partly because the chip slows down as it heats up.
 
@@ -43,6 +44,8 @@ The data also shows the limits of measuring on a fanless laptop: 4 of the 12 com
 **1% low.** Average FPS hides hiccups. The 1% low is the average FPS of the slowest 1% of frames, so it shows how bad the worst moments feel.
 
 **Stutter.** Here, any frame that took more than twice as long as a typical frame from the same run.
+
+**95% confidence interval.** Repeated runs never give exactly the same number. A 95% confidence interval is the range the true value very likely falls in, given how much the runs disagreed. If a before/after difference has an interval that does not include zero, the change is real and not just run-to-run noise.
 
 **Run-to-run variation (CV).** Each combination was run 3 times. The coefficient of variation (CV) says how much the 3 results disagree, as a percentage of their average. Under 2% is very consistent; above 5% means that result should be treated with caution.
 
@@ -196,11 +199,71 @@ The heaviest combinations also showed many stutters: 14.8 per minute at Epic 192
 
 ---
 
-## 5. Discussion
+## 5. Experiment 2: a targeted fix for the shadow step
+
+### Why this fix
+
+Section 4.3 showed that at High and Epic, the shadow pass takes the largest share of GPU time (45% and 50%). Section 4.4 showed that GPU work follows the pixel count. Put together, that suggests a fix: **compute the shadows at a lower resolution.** Shadows are soft and change slowly across the screen, so computing them for fewer pixels and filling in the gaps should lose little detail.
+
+### What changed
+
+With the fix, the shadow pass works at half the width and half the height (1280x720 instead of 2560x1440), which is a quarter of the pixels. The composite step then upsamples it: each full-size pixel blends the four nearest shadow values, giving more weight to the ones at a similar distance from the camera, so a shadow does not bleed across the edge of an object. Everything else is unchanged. The renderer turns this on with `--shadows-scale 0.5`.
+
+### Method
+
+- **Where:** High at 2560x1440. It was the most repeatable combination in experiment 1 (run-to-run variation 0.02%) and fully limited by the GPU, so even a small change would be measurable.
+- **Runs:** 5 baseline runs (shadows at full resolution) and 5 fix runs, 60 seconds each, first 10 seconds dropped.
+- **Alternating order:** baseline 1, fix 1, baseline 2, fix 2, and so on, with 60 second pauses. The MacBook Air warms up during a session (section 4.6); alternating makes any slowdown hit both versions equally instead of making whichever ran last look worse.
+- **Statistics:** each run gives one value per metric; the change between the two versions comes with a 95% confidence interval.
+- **Prediction, written down before the runs:** the shadow pass cost 22.5 ms of a 49.4 ms frame. If it scales with pixel count, a quarter of the pixels should save up to about 17 ms (three quarters of 22.5 ms), minus the cost of upsampling.
+
+### Results
+
+| Measurement | Baseline | Fix | Change | 95% interval of the change |
+|---|---:|---:|---:|---:|
+| Mean frame time | 50.03 ms | 33.21 ms | **-16.82 ms (-33.6%)** | -17.99 to -15.64 ms |
+| Average FPS | 19.99 | 30.11 | +10.12 (+50.6%) | +9.67 to +10.57 |
+| 1% low FPS | 14.56 | 24.35 | +9.78 (+67.2%) | +2.77 to +16.80 |
+| p99 frame time | 57.27 ms | 37.95 ms | -19.31 ms (-33.7%) | -26.79 to -11.83 ms |
+| GPU: gbuffer pass | 14.01 ms | 13.95 ms | -0.05 ms | -0.40 to +0.29 ms |
+| GPU: shadows pass | 22.65 ms | 6.26 ms | **-16.40 ms (-72.4%)** | -16.56 to -16.24 ms |
+| GPU: ao pass | 11.64 ms | 11.68 ms | +0.04 ms | -0.03 to +0.12 ms |
+| GPU: composite pass | 1.48 ms | 1.32 ms | -0.17 ms | -0.22 to -0.12 ms |
+
+What the table shows:
+
+- **The fix is real and large.** Frame time fell by 16.8 ms, and the whole 95% interval (15.6 to 18.0 ms) is far from zero.
+- **The prediction held.** The shadow pass saved 16.4 ms, close to the "up to about 17 ms" predicted. It dropped by 72%, a little short of the 75% that a perfectly proportional saving on a quarter of the pixels would give.
+- **Only the targeted step changed.** The gbuffer and ao intervals include zero, so those passes did not change. The composite step, which now also does the upsampling, did not get slower; it got 0.17 ms faster, possibly because it reads a smaller shadow image.
+- **Why 34% faster frames mean 51% more FPS.** FPS is 1000 divided by frame time, so cutting frame time by a third raises FPS by half (1 / (1 - 0.336) = 1.506). Frame time is the fairer way to state a saving, which is why this report leads with it.
+- **The baseline reproduced experiment 1.** Baseline High 2560x1440 averaged 50.03 ms per frame here and 49.41 ms in experiment 1, a 1.3% difference between two separate sessions.
+
+### Did the image suffer?
+
+A speedup only counts as a fix if the picture still looks right. The renderer saved the exact same view (same camera position) with and without the fix, and a script compared them pixel by pixel:
+
+| Image check | Value |
+|---|---:|
+| PSNR (higher means more alike; above about 40 dB differences are hard to see) | 44.1 dB |
+| Average difference per pixel | 0.27 out of 255 |
+| Pixels that changed by more than a trace (2 or more levels out of 255) | 2.3% |
+| Largest single difference | 138 out of 255 |
+
+Overall the two images are nearly identical, but the largest difference shows that a small number of pixels change a lot. These are most likely along shadow edges, where the half-resolution shadows have to be filled in. The side-by-side comparison image shows where they are.
+
+### Verdict
+
+Rendering shadows at half resolution is a strong fix at High 2560x1440 on this hardware: one third off every frame, with 98% of pixels essentially unchanged. The remaining question is whether the few strongly changed pixels are visible in motion, which a closer look at the comparison image can answer.
+
+---
+
+## 6. Discussion
 
 The main result is that **there is no single bottleneck to fix; it depends on the setting.** At Low, the cheapest win would be to make the surface-finding pass faster. At High and Epic, the shadow pass is where half the time goes, and improving anything else could save at most the other half. This is why measuring each pass matters more than measuring the whole frame: a frame-rate number alone could not have shown this.
 
-The second result is a sanity check that also matters for planning: once the GPU is the bottleneck, cost follows pixel count closely. Rendering a pass at a lower resolution should save roughly in proportion to the pixels removed. That is the idea behind the next experiment.
+The second result is a sanity check that also matters for planning: once the GPU is the bottleneck, cost follows pixel count closely. Rendering a pass at a lower resolution should save roughly in proportion to the pixels removed. Experiment 2 (section 5) tested exactly that and confirmed it: a quarter of the shadow pixels cost 28% of the shadow time.
+
+Together, the two experiments show a complete optimization loop: measure where the time goes, pick the biggest target, predict the saving, test it with alternating runs and a confidence interval, and check the image.
 
 ### Limitations
 
@@ -209,11 +272,13 @@ The second result is a sanity check that also matters for planning: once the GPU
 - **Window, not full screen.** The renderer ran in a window, so macOS's window compositor was involved in showing frames. That may be why the Low settings at small resolutions are not GPU-bound.
 - **GPU busy slightly above 100%** in a few rows (up to 100.5%). The per-pass timestamps overlap a little at their edges. These rows should be read as fully GPU-bound.
 - **Few frames in the slowest 0.1%.** The heavy settings produce only a few hundred frames per run, so the 0.1% low rests on one or two frames and is not used in this report.
-- **Values in this report** come from the output of `gfl analyze` on the capture Mac (see [the summary data](../results/metal_scalability/summary_apple_m3_2026-11-18.csv)). The raw per-frame logs stay on that Mac.
+- **One fix, one setting.** The shadow fix was tested only at High 2560x1440. Its saving at other presets and resolutions is expected to follow the shadow pass's share of the frame, but that was not measured.
+- **Image check from one view.** The image comparison uses one camera position; other views could show more or fewer edge differences.
+- **Values in this report** come from the output of `gfl analyze` and `gfl compare` on the capture Mac (see [the scalability data](../results/metal_scalability/summary_apple_m3_2026-11-18.csv) and [the fix comparison](../results/metal_shadow_fix/comparison_apple_m3_2026-11-18.csv)). The raw per-frame logs stay on that Mac.
 
 ---
 
-## 6. Conclusions
+## 7. Conclusions
 
 1. On the Apple M3, gflbench is GPU-bound in 10 of 12 combinations; Low at the two smaller resolutions is limited by something else.
 2. The pass that dominates changes with the preset: surface finding at Low, shadows at High and Epic (half of all GPU time at Epic). The split is nearly the same at every resolution.
@@ -221,12 +286,13 @@ The second result is a sanity check that also matters for planning: once the GPU
 4. Epic costs 7.1 times as much GPU time per frame as Low at 3840x2160.
 5. Memory use matches the renderer's working images to within 1% at the two larger resolutions, which validates the measurement.
 6. A fanless laptop adds run-to-run variation; 4 of 12 combinations need re-measurement before their numbers are quoted.
+7. Rendering shadows at half resolution cut frame time by 16.8 ms (33.6%, 95% interval 15.6 to 18.0 ms) at High 2560x1440, as predicted from the per-pass measurements, with an image PSNR of 44 dB.
 
 ---
 
-## 7. Next steps
+## 8. Next steps
 
-1. **Before and after: one targeted fix** (set up in `configs/metal_shadow_fix.yaml`). Render the shadow pass at half resolution (half the width and height, a quarter of the pixels) and upsample it, using the renderer's `--shadows-scale 0.5` option. Test it at High 2560x1440, the most repeatable combination (CV 0.02%), where shadows cost 22.5 ms of a 49.4 ms frame. Baseline and fix runs alternate (5 each, 60 second cooldowns) so heat affects both equally. *Prediction, to be tested:* if the shadow pass scales with pixel count like the whole frame did, it should save up to about 17 ms (three quarters of 22.5 ms), minus the cost of upsampling. Image quality will be compared side by side, because a speedup that visibly breaks the shadows is not a fix.
+1. **Look closely at the shadow edges** in the comparison image and, if needed, improve the upsampling filter, then re-test the image check.
 2. **Re-run the four noisy combinations** with a 60 second cooldown, to separate heat from other variation.
 3. **Investigate the Low ceiling** at about 68 FPS: run full screen and with display sync on and off.
 4. **Analyze the per-frame timeline** of the Epic runs to explain the stutters.
@@ -256,6 +322,28 @@ gfl run configs/metal_scalability.yaml
 
 ```bash
 gfl analyze data/raw/<capture folder printed by gfl run>
+```
+
+Experiment 2 (about 20 minutes), then the comparison and the image check:
+
+```bash
+gfl run configs/metal_shadow_fix.yaml
+```
+
+```bash
+gfl compare data/raw/<capture folder printed by gfl run>
+```
+
+```bash
+bench/metal/gflbench --preset high --resolution 2560x1440 --scene-time 5 --still reports/figures/m3_shadowfix_baseline.png
+```
+
+```bash
+bench/metal/gflbench --preset high --resolution 2560x1440 --scene-time 5 --shadows-scale 0.5 --still reports/figures/m3_shadowfix_fix.png
+```
+
+```bash
+python scripts/compare_stills.py reports/figures/m3_shadowfix_baseline.png reports/figures/m3_shadowfix_fix.png reports/figures/m3_shadowfix_image_check.png
 ```
 
 The charts in this report were drawn from the summary data with:
