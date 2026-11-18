@@ -31,6 +31,7 @@ games on hardware without NVIDIA.
 |---|---|---|
 | 1 | Lyra Starter Game across 4 scalability presets (Low, Medium, High, Epic) x 3 resolutions (1080p, 1440p, 4K) | `configs/lyra_scalability.yaml` |
 | 2 | PresentMon frame times validated against NVIDIA FrameView on the same runs | (all runs) |
+| 2b | gflbench, a ray-marched Metal renderer written for this project, across 4 presets x 3 resolutions on Apple silicon, with GPU time per render pass | `configs/metal_scalability.yaml` |
 | 3 | DLSS Native, Quality, Balanced, Performance, with Frame Generation on and off, at 1440p and 4K, in Lyra and Cyberpunk 2077 | `configs/lyra_dlss.yaml`, `configs/cyberpunk_dlss.yaml` |
 | 4 | GPU contention: 0, 1, 2 concurrent Real-ESRGAN TensorRT inference streams while the game runs | `configs/lyra_contention.yaml` |
 | 5 | Before/after study of one targeted Lumen fix found with Nsight Graphics | `configs/lyra_lumen_fix.yaml` |
@@ -51,7 +52,7 @@ captures; `gfl hypothesis-check` refuses to run on synthetic data.
 |---|---|---|
 | 1 | Config schema, PresentMon and FrameView parsers, metrics, synthetic sample data, tests, `gfl analyze` | Done |
 | 2 | Windows run automation (game launch, PresentMon capture, VRAM logging), FrameView validation | Done (built and tested without hardware; not yet run on Windows) |
-| 2b | macOS capture path: real frame times from Metal games on Apple silicon | Planned |
+| 2b | macOS capture path: gflbench Metal renderer with per-pass GPU timing | Built and tested without a Mac; first run on an Apple M3 pending |
 | 3 | DLSS experiments and `gfl compare` | Planned |
 | 4 | TensorRT inference load generator and contention analysis | Planned |
 | 5 | Lumen before/after study | Planned |
@@ -73,11 +74,37 @@ python -m pytest
 gfl analyze data/sample/synthetic_lyra_scalability
 ```
 
-This parses the 36 synthetic runs, drops the 10 s warmup from each, computes the
+```bash
+gfl analyze data/sample/synthetic_metal_bench
+```
+
+The first command parses the 36 synthetic runs, drops the 10 s warmup from each, computes the
 metrics, prints a summary table, and writes CSV, Markdown, and PNG output to
 `results/synthetic/lyra_scalability/`. Every output file is prefixed
-`SYNTHETIC_` and every chart carries a "synthetic data" banner. Example:
+`SYNTHETIC_` and every chart carries a "synthetic data" banner. The second
+does the same for a synthetic Metal benchmark sample and adds a chart of GPU
+time per render pass. Example:
 [synthetic frame-time chart](results/synthetic/lyra_scalability/SYNTHETIC_frametime_trace_2560x1440.png).
+
+## macOS setup (Apple silicon)
+
+The macOS path runs gflbench, the Metal benchmark renderer in `bench/metal`. It
+needs the free Xcode command line tools, not the full Xcode app.
+
+```bash
+xcode-select --install
+```
+
+```bash
+bash bench/metal/build.sh
+```
+
+```bash
+gfl run configs/metal_scalability.yaml
+```
+
+What it renders, how it times each pass, and how to run it well (including
+thermal checks on fanless Macs) is in [bench/metal/README.md](bench/metal/README.md).
 
 ## Windows setup (benchmark PC)
 
@@ -195,6 +222,11 @@ for every run so runs are independent. Scalability is set with the sg.*
 console variables, frame caps and VSync are off, and native runs pin the render
 resolution to 100%.
 
+**Per-pass GPU time (macOS).** gflbench submits each of its four render passes
+as a separate Metal command buffer and records the GPU start and end time of
+each one on every frame. The mean per pass shows where GPU time goes as
+settings rise, the same question a GPU trace answers on NVIDIA hardware.
+
 **Validation.** PresentMon and FrameView read the same `Present()` events, so on
 the same run they should report the same frame times. FrameView is started by
 hand, so its log is offset; `gfl validate` finds the frame offset where the two
@@ -209,6 +241,7 @@ manifests, tables, and charts, and never used for findings. See
 ## Repository layout
 
 ```
+bench/metal/    gflbench: Metal benchmark renderer (Swift, one file) and build script
 configs/        experiment YAML files and schema reference
 docs/           Windows run book
 gfl/            Python package
