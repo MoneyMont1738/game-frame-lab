@@ -261,3 +261,6 @@ data/raw/
 
 # Machine-specific gfl settings (tool paths on the benchmark PC)
 gfl.local.yaml
+
+# Compiled Metal benchmark binary
+bench/metal/gflbench
