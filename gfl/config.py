@@ -30,9 +30,12 @@ MANUAL_PRESET = "manual"
 # "native" means DLSS Super Resolution is off and the game renders at output resolution.
 DLSS_MODES: tuple[str, ...] = ("native", "quality", "balanced", "performance")
 
-# unreal: gfl launches the game with console variable arguments.
-# manual: the person starts the game/benchmark by hand (Cyberpunk 2077); gfl only captures.
-LAUNCHERS: tuple[str, ...] = ("unreal", "manual")
+# unreal:   gfl launches the game with console variable arguments (Windows).
+# manual:   the person starts the game/benchmark by hand (Cyberpunk 2077); gfl only captures.
+# gflbench: gfl runs the Metal benchmark renderer in bench/metal, which records
+#           its own frame log (macOS).
+LAUNCHERS: tuple[str, ...] = ("unreal", "manual", "gflbench")
+NEEDS_EXECUTABLE = ("unreal", "gflbench")
 
 _RESOLUTION_RE = re.compile(r"^(\d{3,5})x(\d{3,5})$")
 _TAG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -188,6 +191,12 @@ def parse_experiment(raw: dict[str, Any], source_path: Path | None = None) -> Ex
     if not all(isinstance(s, int) and not isinstance(s, bool) and s >= 0 for s in streams):
         raise ConfigError("inference_streams values must be non-negative integers")
 
+    if scene.launcher == "gflbench" and (
+        dlss_modes != ("native",) or frame_gen != (False,) or streams != (0,)
+    ):
+        raise ConfigError("gflbench has no DLSS, Frame Generation, or inference load: use "
+                          "dlss_mode [native], frame_generation [false], inference_streams [0]")
+
     for label, values in [("preset", presets), ("resolution", resolutions),
                           ("dlss_mode", dlss_modes), ("inference_streams", streams)]:
         if len(set(values)) != len(values):
@@ -223,8 +232,8 @@ def _parse_scene(raw: dict[str, Any]) -> SceneConfig:
     if launcher not in LAUNCHERS:
         raise ConfigError(f"scene.launcher must be one of {list(LAUNCHERS)}, got {launcher!r}")
     executable = raw.get("executable")
-    if launcher == "unreal" and not executable:
-        raise ConfigError("scene.executable is required when scene.launcher is 'unreal'")
+    if launcher in NEEDS_EXECUTABLE and not executable:
+        raise ConfigError(f"scene.executable is required when scene.launcher is {launcher!r}")
     extra_args = raw.get("extra_args") or []
     if not isinstance(extra_args, list):
         raise ConfigError("scene.extra_args must be a list of strings")

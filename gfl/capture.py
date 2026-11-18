@@ -21,6 +21,7 @@ Methodology decisions:
 from __future__ import annotations
 
 import dataclasses
+import json
 import subprocess
 import time
 from datetime import datetime
@@ -28,10 +29,10 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from gfl.config import ExperimentConfig, RunConfig, validate_tag
-from gfl.launch import build_unreal_command, command_line, kill_command
+from gfl.launch import build_gflbench_command, build_unreal_command, command_line, kill_command
 from gfl.manifest import write_manifest
 from gfl.phases import pending
-from gfl.platform_support import require_windows
+from gfl.platform_support import is_windows, require_macos, require_windows
 from gfl.settings import LocalSettings
 
 
@@ -80,21 +81,33 @@ class Runner(Protocol):
     def prompt(self, message: str) -> None: ...
 
 
+def require_capture_platform(experiment: ExperimentConfig) -> None:
+    """Fail early, with a clear message, if this OS cannot run the experiment."""
+    if experiment.scene.launcher == "gflbench":
+        require_macos("The Metal benchmark (gflbench)")
+    else:
+        require_windows("Benchmark capture with PresentMon")
+
+
 class SubprocessRunner:
-    """Executes commands for real. Windows only."""
+    """Executes commands for real (Windows for PresentMon, macOS for gflbench)."""
 
     def __init__(self, echo: Callable[[str], None] = print) -> None:
-        require_windows("Benchmark capture")
         self.echo = echo
 
+    @staticmethod
+    def _native(command):
+        # On Windows, pass one string so our Unreal-style quoting is kept as
+        # is. Elsewhere, pass the list (no shell involved).
+        return command_line(command) if is_windows() else [str(c) for c in command]
+
     def start(self, command):
-        # A string, not a list, so Windows passes our exact quoting through.
         self.echo(f"start: {command_line(command)}")
-        return subprocess.Popen(command_line(command))
+        return subprocess.Popen(self._native(command))
 
     def run(self, command, timeout_s):
         self.echo(f"run:   {command_line(command)}")
-        return subprocess.run(command_line(command), timeout=timeout_s, check=False).returncode
+        return subprocess.run(self._native(command), timeout=timeout_s, check=False).returncode
 
     def stop(self, handle):
         handle.terminate()
@@ -168,8 +181,37 @@ def capture_run(experiment: ExperimentConfig, run: RunConfig, run_index: int,
     if run.inference_streams:
         raise pending(4, "Capture with concurrent inference streams")
 
-    scene, cap = experiment.scene, experiment.capture
     run_id = f"{run.config_id}_run{run_index}"
+    if experiment.scene.launcher == "gflbench":
+        files = _capture_gflbench(experiment, run, run_id, runner, settings, out_dir)
+    else:
+        files = _capture_presentmon(experiment, run, run_id, runner, settings, out_dir)
+
+    cap = experiment.capture
+    return {
+        "run_id": run_id,
+        "experiment": run.experiment,
+        "config_id": run.config_id,
+        "scene": run.scene,
+        "preset": run.preset,
+        "resolution": str(run.resolution),
+        "dlss_mode": run.dlss_mode,
+        "frame_generation": run.frame_generation,
+        "inference_streams": run.inference_streams,
+        "tag": run.tag,
+        "run_index": run_index,
+        "duration_s": cap.duration_s,
+        "warmup_s": cap.warmup_s,
+        "data_kind": "real",
+        "frameview_csv": "",  # attached later with: gfl validate --frameview-dir
+        "notes": "",
+        **files,
+    }
+
+
+def _capture_presentmon(experiment, run, run_id, runner, settings, out_dir) -> dict:
+    """Windows: launch (or prompt), then PresentMon plus the nvidia-smi logger."""
+    scene, cap = experiment.scene, experiment.capture
     pm_csv = out_dir / f"presentmon_{run_id}.csv"
     smi_csv = out_dir / f"nvidia-smi_{run_id}.csv"
 
@@ -191,28 +233,39 @@ def capture_run(experiment: ExperimentConfig, run: RunConfig, run_index: int,
 
     if code != 0:
         raise CaptureError(f"{run_id}: PresentMon exited with code {code}")
+    return {"capture_tool": "presentmon", "frames_csv": pm_csv.name,
+            "telemetry_csv": smi_csv.name, "captured_at": started_at.isoformat(timespec="seconds")}
 
-    return {
-        "run_id": run_id,
-        "experiment": run.experiment,
-        "config_id": run.config_id,
-        "scene": run.scene,
-        "preset": run.preset,
-        "resolution": str(run.resolution),
-        "dlss_mode": run.dlss_mode,
-        "frame_generation": run.frame_generation,
-        "inference_streams": run.inference_streams,
-        "tag": run.tag,
-        "run_index": run_index,
-        "duration_s": cap.duration_s,
-        "warmup_s": cap.warmup_s,
-        "data_kind": "real",
-        "presentmon_csv": pm_csv.name,
-        "frameview_csv": "",  # attached later with: gfl validate --frameview-dir
-        "telemetry_csv": smi_csv.name,
-        "captured_at": started_at.isoformat(timespec="seconds"),
-        "notes": "",
-    }
+
+def _capture_gflbench(experiment, run, run_id, runner, settings, out_dir) -> dict:
+    """macOS: the benchmark renders for the run's duration and writes its own log.
+
+    It times its passes on the GPU and records Metal memory itself, so there is
+    no separate capture tool or telemetry logger. It needs no load wait: shaders
+    compile before the timed loop starts, and the warmup trim still applies.
+    """
+    cap = experiment.capture
+    frames_csv = out_dir / f"gflbench_{run_id}.csv"
+    started_at = datetime.now()
+    code = runner.run(build_gflbench_command(experiment.scene, run, frames_csv, cap.duration_s),
+                      timeout_s=cap.duration_s + settings.presentmon_timeout_margin_s)
+    if code != 0:
+        raise CaptureError(f"{run_id}: gflbench exited with code {code}")
+    return {"capture_tool": "gflbench", "frames_csv": frames_csv.name,
+            "telemetry_csv": "", "captured_at": started_at.isoformat(timespec="seconds"),
+            "notes": gflbench_note(frames_csv)}
+
+
+def gflbench_note(frames_csv: Path) -> str:
+    """Device and OS from the JSON file gflbench writes next to its log."""
+    sidecar = frames_csv.with_suffix(".json")
+    if not sidecar.exists():
+        return ""
+    try:
+        meta = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return f"device={meta.get('device', '?')}; os={meta.get('os', '?')}"
 
 
 def run_experiment(experiment: ExperimentConfig, runner: Runner, settings: LocalSettings,

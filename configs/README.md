@@ -17,6 +17,7 @@ gfl run configs/lyra_scalability.yaml --dry-run
 | `cyberpunk_dlss.yaml` | Same DLSS matrix in the Cyberpunk 2077 benchmark (launched by hand) | 16 |
 | `lyra_contention.yaml` | 0, 1, 2 concurrent TensorRT inference streams, Epic 1440p | 3 |
 | `lyra_lumen_fix.yaml` | Before/after a targeted Lumen fix, Epic 4K (tag `baseline` then `fix`) | 1 |
+| `metal_scalability.yaml` | gflbench Metal renderer, 4 presets x 3 resolutions, on a Mac | 12 |
 
 ## Schema
 
@@ -27,8 +28,9 @@ description: >                   # optional free text
 
 scene:
   name: lyra                     # required; used in config IDs
-  launcher: unreal               # required; "unreal" (gfl launches it) or "manual"
-  executable: "C:/.../LyraGame.exe"   # required when launcher is "unreal"
+  launcher: unreal               # required; "unreal" (gfl launches it, Windows),
+                                 # "manual" (started by hand), or "gflbench" (macOS)
+  executable: "C:/.../LyraGame.exe"   # required when launcher is "unreal" or "gflbench"
   process_name: LyraGame.exe     # required; PresentMon captures this process
   map: /ShooterMaps/Maps/L_Expanse    # optional
   extra_args: []                 # optional extra command-line arguments

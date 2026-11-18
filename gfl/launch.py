@@ -69,6 +69,20 @@ def build_unreal_command(scene: SceneConfig, run: RunConfig) -> list[str]:
     return command
 
 
+def build_gflbench_command(scene: SceneConfig, run: RunConfig, output_csv, duration_s: float) -> list[str]:
+    """Argument list for one run of the Metal benchmark renderer (bench/metal)."""
+    if scene.launcher != "gflbench":
+        raise ValueError(f"scene {scene.name!r} is not the gflbench renderer")
+    return [
+        scene.executable,
+        "--preset", run.preset,
+        "--resolution", str(run.resolution),
+        "--duration", f"{duration_s:g}",
+        "--output", str(output_csv),
+        *scene.extra_args,
+    ]
+
+
 def command_line(args: list[str]) -> str:
     """Join arguments into one Windows command line, quoted the way Unreal parses it.
 

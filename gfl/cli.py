@@ -39,9 +39,9 @@ def run(
     settings_path: Path = typer.Option(None, "--settings",
                                        help="Local settings file (default: gfl.local.yaml)"),
 ) -> None:
-    """Capture every config in an experiment (Windows benchmark PC)."""
-    from gfl.capture import (DryRunRunner, SubprocessRunner, capture_dir_for, run_experiment,
-                             with_tag)
+    """Capture every config in an experiment (Windows PC, or a Mac for gflbench)."""
+    from gfl.capture import (DryRunRunner, SubprocessRunner, capture_dir_for,
+                             require_capture_platform, run_experiment, with_tag)
     from gfl.settings import load_settings
 
     try:
@@ -49,7 +49,8 @@ def run(
         settings = load_settings(settings_path)
         runs = experiment.expand()
         cap = experiment.capture
-        per_run_s = settings.load_wait_s + cap.duration_s + cap.cooldown_s
+        load_s = 0 if experiment.scene.launcher == "gflbench" else settings.load_wait_s
+        per_run_s = load_s + cap.duration_s + cap.cooldown_s
         typer.echo(f"Experiment: {experiment.name} ({config}), tag {experiment.tag}")
         typer.echo(f"{len(runs)} configs x {cap.runs} runs x {cap.duration_s:g} s "
                    f"(first {cap.warmup_s:g} s dropped). "
@@ -59,6 +60,7 @@ def run(
             typer.echo(f"Dry run: nothing is executed. Output would go to {out_dir}\n")
             run_experiment(experiment, DryRunRunner(typer.echo), settings, out_dir, write_files=False)
             return
+        require_capture_platform(experiment)
         runner = SubprocessRunner(typer.echo)
         run_experiment(experiment, runner, settings, out_dir)
         typer.echo(f"\nCaptured. Next: gfl analyze {out_dir}")

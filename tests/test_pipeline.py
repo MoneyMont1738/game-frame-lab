@@ -71,6 +71,11 @@ def test_windows_only_modules_import_everywhere():
 def test_windows_only_features_fail_clearly_off_windows():
     with pytest.raises(UnsupportedPlatformError, match="only runs on Windows"):
         require_windows("PresentMon capture")
-    from gfl.capture import SubprocessRunner
-    with pytest.raises(UnsupportedPlatformError):
-        SubprocessRunner()
+    from gfl.capture import require_capture_platform
+    from gfl.config import load_experiment
+    root = Path(__file__).resolve().parents[1]
+    with pytest.raises(UnsupportedPlatformError, match="only runs on Windows"):
+        require_capture_platform(load_experiment(root / "configs/lyra_scalability.yaml"))
+    if sys.platform != "darwin":
+        with pytest.raises(UnsupportedPlatformError, match="only runs on macOS"):
+            require_capture_platform(load_experiment(root / "configs/metal_scalability.yaml"))

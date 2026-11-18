@@ -13,11 +13,27 @@ import sys
 
 
 class UnsupportedPlatformError(RuntimeError):
-    """Raised when a Windows-only feature is used on another OS."""
+    """Raised when a Windows-only or macOS-only feature is used on another OS."""
 
 
 def is_windows() -> bool:
     return sys.platform == "win32"
+
+
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def require_macos(feature: str) -> None:
+    """Raise a clear error if `feature` is requested off macOS."""
+    if is_macos():
+        return
+    raise UnsupportedPlatformError(
+        f"{feature} only runs on macOS (this machine is {platform.system()}). "
+        "The Metal benchmark renderer needs a Mac with Apple silicon. On this "
+        "machine you can still analyze existing data, for example: "
+        "gfl analyze data/sample/synthetic_metal_bench"
+    )
 
 
 def require_windows(feature: str) -> None:

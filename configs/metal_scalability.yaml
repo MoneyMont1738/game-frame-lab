@@ -1,0 +1,26 @@
+# Experiment 2b: scalability matrix of the Metal benchmark renderer on Apple silicon.
+# 4 presets x 3 resolutions = 12 configs, each captured 3 times (36 runs).
+# Build the renderer first: bash bench/metal/build.sh
+experiment: metal_scalability
+description: >
+  gflbench, the ray-marched Metal benchmark in bench/metal, across its four
+  quality presets at 1080p, 1440p, and 4K. The renderer times each of its four
+  passes on the GPU, so the results show where GPU time goes as settings rise.
+
+scene:
+  name: metal
+  launcher: gflbench
+  executable: bench/metal/gflbench
+  process_name: gflbench
+
+capture:
+  runs: 3
+  duration_s: 60
+  warmup_s: 10
+  cooldown_s: 15
+
+tag: baseline
+
+matrix:
+  preset: [low, medium, high, epic]
+  resolution: [1920x1080, 2560x1440, 3840x2160]
