@@ -20,7 +20,9 @@
 // preset parameters, and options.
 
 import AppKit
+import CoreGraphics
 import Foundation
+import ImageIO
 import Metal
 import QuartzCore
 
@@ -30,12 +32,17 @@ let usage = """
 usage: gflbench [--preset low|medium|high|epic] [--resolution WIDTHxHEIGHT]
                 [--duration SECONDS] [--output FILE.csv]
                 [--shadows-scale 0..1] [--ao-scale 0..1] [--vsync]
+                [--still FILE.png [--scene-time SECONDS]]
 
   --shadows-scale, --ao-scale  render that pass at a fraction of the output
                                resolution (0.5 = half width and height), then
                                upsample with a depth-aware filter
   --vsync                      sync to the display (off by default, so frame
                                times show the real cost of each frame)
+  --still FILE.png             render one frame and save it as a PNG instead of
+                               benchmarking (no timing log is written)
+  --scene-time SECONDS         where on the camera path the still is taken
+                               (default 5); the same time gives the same view
 """
 
 struct Options {
@@ -47,6 +54,8 @@ struct Options {
     var shadowsScale = 1.0
     var aoScale = 1.0
     var vsync = false
+    var stillPath: String? = nil
+    var sceneTime = 5.0
 }
 
 // What each preset changes. Every knob scales real GPU work:
@@ -113,6 +122,11 @@ func parseOptions() -> Options {
             options.aoScale = fraction(flag)
         case "--vsync":
             options.vsync = true
+        case "--still":
+            options.stillPath = value(flag)
+        case "--scene-time":
+            guard let t = Double(value(flag)), t >= 0 else { fail("--scene-time must be a number >= 0") }
+            options.sceneTime = t
         case "--help", "-h":
             print(usage)
             exit(0)
@@ -275,6 +289,88 @@ final class Bench: @unchecked Sendable {
         exit(0)
     }
 
+    /// Encodes one render pass. Shared by the timed loop and by still images,
+    /// so a still shows exactly what the benchmark renders.
+    func encode(pass: Int, encoder: MTLComputeCommandEncoder, time: Float, target: MTLTexture) {
+        let outputSizes = [
+            (options.width, options.height),
+            (lightTexture.width, lightTexture.height),
+            (aoTexture.width, aoTexture.height),
+            (options.width, options.height),
+        ]
+        var params = Params(width: UInt32(options.width), height: UInt32(options.height),
+                            outWidth: UInt32(outputSizes[pass].0), outHeight: UInt32(outputSizes[pass].1),
+                            time: time,
+                            marchSteps: quality.marchSteps, shadowSteps: quality.shadowSteps,
+                            lightCount: quality.lightCount, aoDirections: quality.aoDirections,
+                            aoSteps: quality.aoSteps, detailOctaves: quality.detailOctaves, pad: 0)
+        encoder.setBytes(&params, length: MemoryLayout<Params>.stride, index: 0)
+        switch pass {
+        case 0:
+            encoder.setTexture(positionTexture, index: 0)
+            encoder.setTexture(normalTexture, index: 1)
+        case 1:
+            encoder.setTexture(positionTexture, index: 0)
+            encoder.setTexture(normalTexture, index: 1)
+            encoder.setTexture(lightTexture, index: 2)
+        case 2:
+            encoder.setTexture(positionTexture, index: 0)
+            encoder.setTexture(normalTexture, index: 1)
+            encoder.setTexture(aoTexture, index: 2)
+        default:
+            encoder.setTexture(positionTexture, index: 0)
+            encoder.setTexture(normalTexture, index: 1)
+            encoder.setTexture(lightTexture, index: 2)
+            encoder.setTexture(aoTexture, index: 3)
+            encoder.setTexture(target, index: 4)
+        }
+        dispatch(encoder, pipelines[pass], outputSizes[pass].0, outputSizes[pass].1)
+    }
+
+    /// Renders one frame at a fixed point on the camera path and saves it as a
+    /// PNG. The same scene time always gives the same camera and light
+    /// positions, so stills from different presets or options line up exactly.
+    func saveStill(to path: String, sceneTime: Double) -> Never {
+        let w = options.width, h = options.height
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h,
+                                                                  mipmapped: false)
+        descriptor.usage = [.shaderRead, .shaderWrite]
+        descriptor.storageMode = .shared
+        guard let target = device.makeTexture(descriptor: descriptor),
+              let commandBuffer = queue.makeCommandBuffer() else {
+            fail("could not allocate the still image")
+        }
+        for pass in 0..<Bench.passNames.count {
+            guard let encoder = commandBuffer.makeComputeCommandEncoder() else { fail("could not create an encoder") }
+            encode(pass: pass, encoder: encoder, time: Float(sceneTime), target: target)
+            encoder.endEncoding()
+        }
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+
+        let bytesPerRow = w * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * h)
+        target.getBytes(&pixels, bytesPerRow: bytesPerRow, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+        // The texture holds B, G, R, A bytes. Read as little-endian 32-bit
+        // words that is alpha-first ARGB, which is what this bitmap info says.
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue
+                                      | CGBitmapInfo.byteOrder32Little.rawValue)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let provider = CGDataProvider(data: Data(pixels) as CFData),
+              let image = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32,
+                                  bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo,
+                                  provider: provider, decode: nil, shouldInterpolate: false,
+                                  intent: .defaultIntent),
+              let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL,
+                                                                "public.png" as CFString, 1, nil) else {
+            fail("could not encode \(path) as a PNG")
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { fail("could not write \(path)") }
+        print("gflbench: wrote still image \(path) (scene time \(sceneTime) s)")
+        exit(0)
+    }
+
     func renderFrame(start: CFTimeInterval) {
         let frameBegin = CACurrentMediaTime()
         guard let drawable = layer.nextDrawable() else {
@@ -290,50 +386,14 @@ final class Bench: @unchecked Sendable {
         let frames = self.frames
         let inFlight = self.inFlight
 
-        let base = Params(width: UInt32(options.width), height: UInt32(options.height),
-                          outWidth: UInt32(options.width), outHeight: UInt32(options.height),
-                          time: Float(frameBegin - start),
-                          marchSteps: quality.marchSteps, shadowSteps: quality.shadowSteps,
-                          lightCount: quality.lightCount, aoDirections: quality.aoDirections,
-                          aoSteps: quality.aoSteps, detailOctaves: quality.detailOctaves, pad: 0)
-        let outputSizes = [
-            (options.width, options.height),
-            (lightTexture.width, lightTexture.height),
-            (aoTexture.width, aoTexture.height),
-            (options.width, options.height),
-        ]
-
+        let time = Float(frameBegin - start)
         for pass in 0..<Bench.passNames.count {
             guard let commandBuffer = queue.makeCommandBuffer(),
                   let encoder = commandBuffer.makeComputeCommandEncoder() else {
                 fail("could not create a command buffer")
             }
             commandBuffer.label = Bench.passNames[pass]
-            var params = base
-            params.outWidth = UInt32(outputSizes[pass].0)
-            params.outHeight = UInt32(outputSizes[pass].1)
-            encoder.setBytes(&params, length: MemoryLayout<Params>.stride, index: 0)
-
-            switch pass {
-            case 0:
-                encoder.setTexture(positionTexture, index: 0)
-                encoder.setTexture(normalTexture, index: 1)
-            case 1:
-                encoder.setTexture(positionTexture, index: 0)
-                encoder.setTexture(normalTexture, index: 1)
-                encoder.setTexture(lightTexture, index: 2)
-            case 2:
-                encoder.setTexture(positionTexture, index: 0)
-                encoder.setTexture(normalTexture, index: 1)
-                encoder.setTexture(aoTexture, index: 2)
-            default:
-                encoder.setTexture(positionTexture, index: 0)
-                encoder.setTexture(normalTexture, index: 1)
-                encoder.setTexture(lightTexture, index: 2)
-                encoder.setTexture(aoTexture, index: 3)
-                encoder.setTexture(drawable.texture, index: 4)
-            }
-            dispatch(encoder, pipelines[pass], outputSizes[pass].0, outputSizes[pass].1)
+            encode(pass: pass, encoder: encoder, time: time, target: drawable.texture)
             encoder.endEncoding()
 
             commandBuffer.addCompletedHandler { buffer in
@@ -474,9 +534,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let bench = Bench(options: options, device: device, layer: layer)
         self.bench = bench
-        print("gflbench: \(device.name), preset \(options.preset), "
-              + "\(options.width)x\(options.height), \(options.duration) s -> \(options.output)")
-        let thread = Thread { bench.run() }
+        let opts = self.options  // a copy the background thread can capture
+        let thread: Thread
+        if let still = opts.stillPath {
+            print("gflbench: \(device.name), preset \(opts.preset), "
+                  + "\(opts.width)x\(opts.height), still at scene time \(opts.sceneTime) s")
+            thread = Thread { bench.saveStill(to: still, sceneTime: opts.sceneTime) }
+        } else {
+            print("gflbench: \(device.name), preset \(opts.preset), "
+                  + "\(opts.width)x\(opts.height), \(opts.duration) s -> \(opts.output)")
+            thread = Thread { bench.run() }
+        }
         thread.qualityOfService = .userInteractive
         thread.start()
     }
