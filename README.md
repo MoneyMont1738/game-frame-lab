@@ -174,7 +174,8 @@ gfl run configs/lyra_scalability.yaml --dry-run
 | Capture an experiment | `gfl run configs/<experiment>.yaml` (`--tag fix` for after runs) | Now (Windows) |
 | Check PresentMon against FrameView | `gfl validate data/raw/<capture folder> --frameview-dir <FrameView logs>` | Now |
 | Analyze a capture folder | `gfl analyze data/raw/<capture folder>` | Now |
-| DLSS, contention, before/after comparisons | `gfl compare ...` | Phases 3 to 5 |
+| Before/after: change in frame time (ms) with a 95% interval | `gfl compare <capture folder>` | Now |
+| DLSS and inference-load comparisons | `gfl compare ...` | Phases 3 and 4 |
 | Build the report | `gfl report` | Phase 6 |
 | Check the hypotheses against real data | `gfl hypothesis-check data/raw/<folders>` | Phase 6 |
 
@@ -195,6 +196,9 @@ Experiment-specific notes:
   per stream, so the load is the same in every run.
 - **Lumen fix:** capture with `tag: baseline`, apply the fix, capture again with
   `tag: fix`. Everything else stays identical.
+- **Shadow fix (Mac):** `configs/metal_shadow_fix.yaml` defines both variants in
+  one file and alternates them run by run, so slow drift such as a laptop
+  warming up affects both equally. `gfl compare` then reports the change.
 
 ## Methodology
 

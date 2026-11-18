@@ -18,6 +18,7 @@ gfl run configs/lyra_scalability.yaml --dry-run
 | `lyra_contention.yaml` | 0, 1, 2 concurrent TensorRT inference streams, Epic 1440p | 3 |
 | `lyra_lumen_fix.yaml` | Before/after a targeted Lumen fix, Epic 4K (tag `baseline` then `fix`) | 1 |
 | `metal_scalability.yaml` | gflbench Metal renderer, 4 presets x 3 resolutions, on a Mac | 12 |
+| `metal_shadow_fix.yaml` | Before/after: half-resolution shadows at High 2560x1440, on a Mac (variants `baseline` and `fix`) | 2 |
 
 ## Schema
 
@@ -42,6 +43,11 @@ capture:                         # optional; defaults shown
   cooldown_s: 15                 # pause between runs so clocks and temperatures settle
 
 tag: baseline                    # optional; default "baseline" ("fix" for the after runs)
+
+variants:                        # optional, instead of tag: a before/after study in one file
+  baseline: []                   # name (becomes the tag): extra command-line arguments
+  fix: ["--shadows-scale", "0.5"]
+                                 # runs alternate: baseline 1, fix 1, baseline 2, ...
 
 matrix:                          # every combination is one config
   preset: [low, medium, high, epic]   # required; "manual" only with launcher "manual"

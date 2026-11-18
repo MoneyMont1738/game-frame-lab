@@ -226,7 +226,7 @@ The second result is a sanity check that also matters for planning: once the GPU
 
 ## 7. Next steps
 
-1. **Before and after: one targeted fix.** Render the shadow pass at half resolution (half the width and height, a quarter of the pixels) and upsample it, using the renderer's `--shadows-scale 0.5` option. Test it at High 2560x1440, the most repeatable combination (CV 0.02%), where shadows cost 22.5 ms of a 49.4 ms frame. *Prediction, to be tested:* if the shadow pass scales with pixel count like the whole frame did, it should save up to about 17 ms (three quarters of 22.5 ms), minus the cost of upsampling. Image quality will be compared side by side, because a speedup that visibly breaks the shadows is not a fix.
+1. **Before and after: one targeted fix** (set up in `configs/metal_shadow_fix.yaml`). Render the shadow pass at half resolution (half the width and height, a quarter of the pixels) and upsample it, using the renderer's `--shadows-scale 0.5` option. Test it at High 2560x1440, the most repeatable combination (CV 0.02%), where shadows cost 22.5 ms of a 49.4 ms frame. Baseline and fix runs alternate (5 each, 60 second cooldowns) so heat affects both equally. *Prediction, to be tested:* if the shadow pass scales with pixel count like the whole frame did, it should save up to about 17 ms (three quarters of 22.5 ms), minus the cost of upsampling. Image quality will be compared side by side, because a speedup that visibly breaks the shadows is not a fix.
 2. **Re-run the four noisy combinations** with a 60 second cooldown, to separate heat from other variation.
 3. **Investigate the Low ceiling** at about 68 FPS: run full screen and with display sync on and off.
 4. **Analyze the per-frame timeline** of the Epic runs to explain the stutters.

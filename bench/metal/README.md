@@ -66,6 +66,18 @@ GPU, and is something to measure, not assume.
 | `--output` | gflbench.csv | log path; a `.json` file with the same name records device, OS, and settings |
 | `--shadows-scale`, `--ao-scale` | 1 | render that pass at a fraction of the resolution, then upsample with a depth-aware filter |
 | `--vsync` | off | sync to the display; off by default so frame times show each frame's real cost |
+| `--still` | (off) | render one frame to a PNG instead of benchmarking |
+| `--scene-time` | 5 | where on the camera path the still is taken, in seconds; the same time always gives the same view |
+
+## Still images
+
+A still renders one frame at a fixed point on the camera path, with the same
+code the benchmark uses, and saves it as a PNG. Stills at the same scene time
+line up pixel for pixel, so they show exactly what a preset or option changes:
+
+```bash
+for p in low medium high epic; do bench/metal/gflbench --preset $p --resolution 1920x1080 --scene-time 5 --still reports/figures/m3_scene_$p.png; done
+```
 
 ## How timing works
 
@@ -103,11 +115,34 @@ show whether it happened: the run-to-run coefficient of variation per config,
 and whether run 3 is consistently slower than run 1. If it is, lengthen
 `cooldown_s` in the config.
 
-## The targeted fix (next step)
+## The targeted fix: half-resolution shadows
 
-Once the scalability results show which pass dominates at the heaviest
-setting, that pass gets one targeted change (for example rendering it at half
-resolution with `--shadows-scale 0.5` or `--ao-scale 0.5`). The same config is
-then captured with tag `baseline` and with tag `fix`, and the change in frame
-time is reported in milliseconds, along with a visual check that image quality
-held up.
+The scalability results showed shadows are the largest pass at High and Epic,
+so the fix renders the shadow pass at half width and height (a quarter of the
+pixels) and upsamples it with a depth-aware filter. `configs/metal_shadow_fix.yaml`
+captures 5 baseline and 5 fix runs at High 2560x1440, alternating between the
+two so that the laptop warming up affects both equally (about 20 minutes):
+
+```bash
+gfl run configs/metal_shadow_fix.yaml
+```
+
+```bash
+gfl compare data/raw/metal_shadow_fix_baseline-vs-fix_<timestamp>
+```
+
+`gfl compare` reports the change in mean frame time in ms with a 95%
+confidence interval, and the change in each pass. Then check that the shadows
+still look right:
+
+```bash
+bench/metal/gflbench --preset high --resolution 2560x1440 --scene-time 5 --still reports/figures/m3_shadowfix_baseline.png
+```
+
+```bash
+bench/metal/gflbench --preset high --resolution 2560x1440 --scene-time 5 --shadows-scale 0.5 --still reports/figures/m3_shadowfix_fix.png
+```
+
+```bash
+python scripts/compare_stills.py reports/figures/m3_shadowfix_baseline.png reports/figures/m3_shadowfix_fix.png reports/figures/m3_shadowfix_image_check.png
+```
