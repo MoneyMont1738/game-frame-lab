@@ -1,0 +1,36 @@
+# Experiment 5 (Mac): before/after study of one targeted fix.
+# The fix: render the shadow pass at half resolution (a quarter of the pixels)
+# and upsample it with a depth-aware filter.
+#
+# Why this fix: in metal_scalability, shadows were the largest pass at High and
+# Epic (45% and 50% of GPU time). Why High 2560x1440: it was the most repeatable
+# config (run-to-run CV 0.02%) and fully GPU-bound, so a change of a few ms is
+# easy to measure.
+#
+# Run order alternates baseline and fix (baseline 1, fix 1, baseline 2, ...), so
+# the MacBook Air warming up affects both variants equally.
+experiment: metal_shadow_fix
+description: >
+  gflbench at High 2560x1440 with the shadow pass at full resolution (baseline)
+  and at half resolution (fix). Reports the change in mean frame time in ms
+  with a 95% confidence interval.
+
+scene:
+  name: metal
+  launcher: gflbench
+  executable: bench/metal/gflbench
+  process_name: gflbench
+
+capture:
+  runs: 5           # per variant; 10 runs in total
+  duration_s: 60
+  warmup_s: 10
+  cooldown_s: 60    # 4x the scalability cooldown, because the fanless Air heated up there
+
+variants:
+  baseline: []
+  fix: ["--shadows-scale", "0.5"]
+
+matrix:
+  preset: [high]
+  resolution: [2560x1440]
