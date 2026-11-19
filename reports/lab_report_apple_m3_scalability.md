@@ -266,11 +266,21 @@ A speedup only counts as a fix if the picture still looks right. The renderer sa
 | Pixels that changed by more than a trace (2 or more levels out of 255) | 2.3% |
 | Largest single difference | 138 out of 255 |
 
-Overall the two images are nearly identical, but the largest difference shows that a small number of pixels change a lot. These are most likely along shadow edges, where the half-resolution shadows have to be filled in. The side-by-side comparison image shows where they are.
+Overall the two images are nearly identical, but the largest difference shows that a small number of pixels change a lot. The comparison image shows where:
+
+![Zoomed baseline and fix, and a map of where they differ](figures/m3_shadowfix_image_check.png)
+
+The differences sit along **object outlines**, not across the shadows themselves: a thin, stair-stepped line down the edges of the center pillar (where the largest difference, 138 out of 255, occurs) and fainter lines around the rings. Where a near object meets the far background, some of the quarter-resolution shadow samples come from the wrong side of the edge, and the depth-aware filter does not catch every one. Inside surfaces and across the floor, the two images match.
+
+The full frames, same view, baseline then fix (compressed copies of the PNGs the renderer saved):
+
+| Baseline: shadows at full resolution | Fix: shadows at half resolution |
+|---|---|
+| <img src="figures/m3_shadowfix_baseline.webp" alt="High preset at 2560x1440 with full-resolution shadows" width="100%"> | <img src="figures/m3_shadowfix_fix.webp" alt="High preset at 2560x1440 with half-resolution shadows; nearly identical, with slight stair-stepping along some object edges" width="100%"> |
 
 ### Verdict
 
-Rendering shadows at half resolution is a strong fix at High 2560x1440 on this hardware: one third off every frame, with 98% of pixels essentially unchanged. The remaining question is whether the few strongly changed pixels are visible in motion, which a closer look at the comparison image can answer.
+Rendering shadows at half resolution is a strong fix at High 2560x1440 on this hardware: one third off every frame, with 98% of pixels essentially unchanged. Its one visible cost is a thin stair-stepped line along some object outlines. It is subtle in a still frame, but edges like this tend to shimmer when the camera moves, so a better filter at depth edges is the next refinement.
 
 ---
 
@@ -290,7 +300,7 @@ Together, the two experiments show a complete optimization loop: measure where t
 - **GPU busy slightly above 100%** in a few rows (up to 100.5%). The per-pass timestamps overlap a little at their edges. These rows should be read as fully GPU-bound.
 - **Few frames in the slowest 0.1%.** The heavy settings produce only a few hundred frames per run, so the 0.1% low rests on one or two frames and is not used in this report.
 - **One fix, one setting.** The shadow fix was tested only at High 2560x1440. Its saving at other presets and resolutions is expected to follow the shadow pass's share of the frame, but that was not measured.
-- **Image check from one view.** The image comparison uses one camera position; other views could show more or fewer edge differences.
+- **Image check from one view.** The image comparison uses one camera position; other views could show more or fewer edge differences, and a still image cannot show shimmer in motion.
 - **Rendering artifact.** The renderer draws thin dark slits on some objects (section 2, "What each preset looks like"). Fixing it means checking neighboring grid cells, which adds work to every distance check, so all timings would need to be measured again afterwards.
 - **Values in this report** come from the output of `gfl analyze` and `gfl compare` on the capture Mac (see [the scalability data](../results/metal_scalability/summary_apple_m3_2026-11-18.csv) and [the fix comparison](../results/metal_shadow_fix/comparison_apple_m3_2026-11-18.csv)). The raw per-frame logs stay on that Mac.
 
@@ -310,7 +320,7 @@ Together, the two experiments show a complete optimization loop: measure where t
 
 ## 8. Next steps
 
-1. **Look closely at the shadow edges** in the comparison image and, if needed, improve the upsampling filter, then re-test the image check.
+1. **Clean up the object outlines in the shadow fix.** Improve the upsampling filter at depth edges (for example, take the shadow from the single neighbor closest in depth when the four disagree), then repeat the timing comparison and the image check.
 2. **Fix the dark-slit rendering bug** by checking the neighboring grid cells, then re-measure, since the fix adds work to every pass.
 3. **Re-run the four noisy combinations** with a 60 second cooldown, to separate heat from other variation.
 4. **Investigate the Low ceiling** at about 68 FPS: run full screen and with display sync on and off.
