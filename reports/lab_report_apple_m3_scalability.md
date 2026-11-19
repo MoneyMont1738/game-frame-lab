@@ -83,6 +83,23 @@ Each frame is drawn in four render passes:
 
 These values were chosen as a plausible quality ladder before any measurement. Which pass dominates is a property of these choices and of this GPU; it was measured, not assumed.
 
+### What each preset looks like
+
+The same moment of the camera path (5 seconds in), rendered by the benchmark itself at 1920x1080 on the M3 with its still-image mode (`gflbench --still`). These are compressed copies of the original PNGs.
+
+| Low | Medium |
+|---|---|
+| <img src="figures/m3_scene_low.webp" alt="Low preset: one light, crisp shadows all pointing the same way, smooth surfaces" width="100%"> | <img src="figures/m3_scene_medium.webp" alt="Medium preset: two lights, two sets of softer shadows" width="100%"> |
+| **High** | **Epic** |
+| <img src="figures/m3_scene_high.webp" alt="High preset: three lights, softer shadows, more surface detail" width="100%"> | <img src="figures/m3_scene_epic.webp" alt="Epic preset: four lights, soft overlapping shadows, bumpy surfaces from three detail layers" width="100%"> |
+
+What to look for:
+
+- **Shadows.** Low has one light, so every shadow points the same way and has a crisp edge. Each step up adds a light, so shadows overlap and soften. This is the shadow pass's extra work made visible.
+- **Surfaces.** Low and Medium surfaces are smooth. High and especially Epic add layers of fine bumps (the "detail layers" in the table above), which is why Epic's pillars look rougher and mottled.
+- **Corners and contact.** Ambient occlusion darkens where objects meet the ground and each other. It gets more samples at each preset, so these darkened areas get smoother.
+- **A rendering bug, at every preset.** Some domes show thin dark slits or stripes (the dome right of center, and several in the distance). They most likely come from how the scene repeats one set of objects across a grid: when a ray passes close to the edge of one grid cell, the program only checks that cell's objects and can step into the neighboring cell's object. Because it affects every preset alike, it does not change the comparisons in this report, but it is a flaw in the renderer and is listed under next steps.
+
 ### Hardware and software
 
 - Apple M3 MacBook Air with passive (fanless) cooling, macOS 26.5.1, plugged in.
@@ -274,6 +291,7 @@ Together, the two experiments show a complete optimization loop: measure where t
 - **Few frames in the slowest 0.1%.** The heavy settings produce only a few hundred frames per run, so the 0.1% low rests on one or two frames and is not used in this report.
 - **One fix, one setting.** The shadow fix was tested only at High 2560x1440. Its saving at other presets and resolutions is expected to follow the shadow pass's share of the frame, but that was not measured.
 - **Image check from one view.** The image comparison uses one camera position; other views could show more or fewer edge differences.
+- **Rendering artifact.** The renderer draws thin dark slits on some objects (section 2, "What each preset looks like"). Fixing it means checking neighboring grid cells, which adds work to every distance check, so all timings would need to be measured again afterwards.
 - **Values in this report** come from the output of `gfl analyze` and `gfl compare` on the capture Mac (see [the scalability data](../results/metal_scalability/summary_apple_m3_2026-11-18.csv) and [the fix comparison](../results/metal_shadow_fix/comparison_apple_m3_2026-11-18.csv)). The raw per-frame logs stay on that Mac.
 
 ---
@@ -293,10 +311,11 @@ Together, the two experiments show a complete optimization loop: measure where t
 ## 8. Next steps
 
 1. **Look closely at the shadow edges** in the comparison image and, if needed, improve the upsampling filter, then re-test the image check.
-2. **Re-run the four noisy combinations** with a 60 second cooldown, to separate heat from other variation.
-3. **Investigate the Low ceiling** at about 68 FPS: run full screen and with display sync on and off.
-4. **Analyze the per-frame timeline** of the Epic runs to explain the stutters.
-5. **The NVIDIA part of the study** (Unreal Engine 5, DLSS, AI inference load) still needs a Windows PC with an NVIDIA RTX GPU.
+2. **Fix the dark-slit rendering bug** by checking the neighboring grid cells, then re-measure, since the fix adds work to every pass.
+3. **Re-run the four noisy combinations** with a 60 second cooldown, to separate heat from other variation.
+4. **Investigate the Low ceiling** at about 68 FPS: run full screen and with display sync on and off.
+5. **Analyze the per-frame timeline** of the Epic runs to explain the stutters.
+6. **The NVIDIA part of the study** (Unreal Engine 5, DLSS, AI inference load) still needs a Windows PC with an NVIDIA RTX GPU.
 
 ---
 
