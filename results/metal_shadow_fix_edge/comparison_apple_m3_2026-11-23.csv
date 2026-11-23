@@ -1,0 +1,17 @@
+comparison,metric,before,after,change,change_pct,ci_low,ci_high,runs_before,runs_after
+baseline_vs_fix-edge,mean_frametime_ms,50.12,34.40,-15.72,-31.4,-16.41,-15.03,5,5
+baseline_vs_fix-edge,avg_fps,19.95,29.07,9.12,45.7,8.76,9.47,5,5
+baseline_vs_fix-edge,low_1pct_fps,14.86,21.80,6.94,46.7,1.40,12.47,5,5
+baseline_vs_fix-edge,p99_frametime_ms,56.44,40.96,-15.48,-27.4,-19.08,-11.88,5,5
+baseline_vs_fix-edge,pass_gbuffer_ms,14.00,14.08,0.08,0.5,-0.13,0.28,5,5
+baseline_vs_fix-edge,pass_shadows_ms,22.79,6.31,-16.47,-72.3,-16.81,-16.14,5,5
+baseline_vs_fix-edge,pass_ao_ms,11.74,11.81,0.07,0.6,-0.13,0.27,5,5
+baseline_vs_fix-edge,pass_composite_ms,1.51,2.20,0.69,45.4,0.64,0.74,5,5
+fix_vs_fix-edge,mean_frametime_ms,35.21,34.40,-0.81,-2.3,-3.65,2.02,5,5
+fix_vs_fix-edge,avg_fps,28.49,29.07,0.58,2.0,-1.65,2.81,5,5
+fix_vs_fix-edge,low_1pct_fps,20.73,21.80,1.07,5.1,-8.98,11.11,5,5
+fix_vs_fix-edge,p99_frametime_ms,42.22,40.96,-1.27,-3.0,-8.70,6.17,5,5
+fix_vs_fix-edge,pass_gbuffer_ms,14.68,14.08,-0.61,-4.1,-1.79,0.57,5,5
+fix_vs_fix-edge,pass_shadows_ms,6.57,6.31,-0.25,-3.9,-0.77,0.26,5,5
+fix_vs_fix-edge,pass_ao_ms,12.36,11.81,-0.55,-4.5,-1.62,0.51,5,5
+fix_vs_fix-edge,pass_composite_ms,1.44,2.20,0.76,52.7,0.62,0.90,5,5
