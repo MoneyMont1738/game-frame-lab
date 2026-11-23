@@ -32,6 +32,7 @@ let usage = """
 usage: gflbench [--preset low|medium|high|epic] [--resolution WIDTHxHEIGHT]
                 [--duration SECONDS] [--output FILE.csv]
                 [--shadows-scale 0..1] [--ao-scale 0..1] [--vsync]
+                [--upsample weighted|edge]
                 [--still FILE.png [--scene-time SECONDS]]
 
   --shadows-scale, --ao-scale  render that pass at a fraction of the output
@@ -39,6 +40,10 @@ usage: gflbench [--preset low|medium|high|epic] [--resolution WIDTHxHEIGHT]
                                upsample with a depth-aware filter
   --vsync                      sync to the display (off by default, so frame
                                times show the real cost of each frame)
+  --upsample weighted|edge     how reduced-resolution passes are filled back in:
+                               weighted (default, the original filter) or edge
+                               (blends only samples on the same surface and
+                               computes edge pixels at full resolution)
   --still FILE.png             render one frame and save it as a PNG instead of
                                benchmarking (no timing log is written)
   --scene-time SECONDS         where on the camera path the still is taken
@@ -54,6 +59,7 @@ struct Options {
     var shadowsScale = 1.0
     var aoScale = 1.0
     var vsync = false
+    var upsample = "weighted"
     var stillPath: String? = nil
     var sceneTime = 5.0
 }
@@ -122,6 +128,10 @@ func parseOptions() -> Options {
             options.aoScale = fraction(flag)
         case "--vsync":
             options.vsync = true
+        case "--upsample":
+            let mode = value(flag)
+            guard mode == "weighted" || mode == "edge" else { fail("--upsample must be weighted or edge") }
+            options.upsample = mode
         case "--still":
             options.stillPath = value(flag)
         case "--scene-time":
@@ -142,6 +152,7 @@ func parseOptions() -> Options {
 
 // Must match `struct Params` in the shader source byte for byte: twelve
 // 4-byte fields, 48 bytes, no padding.
+// upsampleMode: 0 = depth-weighted bilinear (original), 1 = edge-aware.
 struct Params {
     var width: UInt32
     var height: UInt32
@@ -154,7 +165,7 @@ struct Params {
     var aoDirections: Int32
     var aoSteps: Int32
     var detailOctaves: Int32
-    var pad: Int32
+    var upsampleMode: Int32
 }
 
 func ms(_ seconds: Double) -> String { String(format: "%.4f", seconds * 1000.0) }
@@ -303,7 +314,8 @@ final class Bench: @unchecked Sendable {
                             time: time,
                             marchSteps: quality.marchSteps, shadowSteps: quality.shadowSteps,
                             lightCount: quality.lightCount, aoDirections: quality.aoDirections,
-                            aoSteps: quality.aoSteps, detailOctaves: quality.detailOctaves, pad: 0)
+                            aoSteps: quality.aoSteps, detailOctaves: quality.detailOctaves,
+                            upsampleMode: options.upsample == "edge" ? 1 : 0)
         encoder.setBytes(&params, length: MemoryLayout<Params>.stride, index: 0)
         switch pass {
         case 0:
@@ -467,6 +479,7 @@ final class Bench: @unchecked Sendable {
             "duration_s": options.duration,
             "shadows_scale": options.shadowsScale,
             "ao_scale": options.aoScale,
+            "upsample": options.upsample,
             "vsync": options.vsync,
             "frames": lines.count - 1,
             "quality": [
@@ -572,7 +585,7 @@ struct Params {
     int aoDirections;
     int aoSteps;
     int detailOctaves;
-    int pad;
+    int upsampleMode;  // 0 = depth-weighted bilinear (original), 1 = edge-aware
 };
 
 constant float MAX_DIST = 80.0;
@@ -709,17 +722,10 @@ float softShadow(float3 ro, float3 rd, float maxT, int steps, int octaves) {
     return clamp(res, 0.0, 1.0);
 }
 
-kernel void shadows_kernel(texture2d<float, access::read> positionIn [[texture(0)]],
-                           texture2d<float, access::read> normalIn [[texture(1)]],
-                           texture2d<float, access::write> lightOut [[texture(2)]],
-                           constant Params &P [[buffer(0)]],
-                           uint2 gid [[thread_position_in_grid]]) {
-    if (gid.x >= P.outWidth || gid.y >= P.outHeight) return;
-    uint2 src = sourcePixel(gid, P);
-    float4 pos = positionIn.read(src);
-    if (pos.w < 0.0) { lightOut.write(float4(0.0), gid); return; }
-    float3 n = normalIn.read(src).xyz;
-    float3 p = pos.xyz + n * 0.01;
+// Direct light at one surface point: every light, each with a soft shadow.
+// Used by the shadows pass and, for edge pixels, by the edge-aware composite.
+float3 directLight(float3 surface, float3 n, constant Params &P) {
+    float3 p = surface + n * 0.01;
     float3 sum = float3(0.0);
     for (int i = 0; i < P.lightCount; i++) {
         float3 toLight = lightPosition(i, P.time) - p;
@@ -731,7 +737,20 @@ kernel void shadows_kernel(texture2d<float, access::read> positionIn [[texture(0
         sum += lightColor(i) * ndl * shadow * (60.0 / (1.0 + dist * dist));
     }
     // Normalize by light count so every preset has a similar overall exposure.
-    lightOut.write(float4(sum / float(max(P.lightCount, 1)), 1.0), gid);
+    return sum / float(max(P.lightCount, 1));
+}
+
+kernel void shadows_kernel(texture2d<float, access::read> positionIn [[texture(0)]],
+                           texture2d<float, access::read> normalIn [[texture(1)]],
+                           texture2d<float, access::write> lightOut [[texture(2)]],
+                           constant Params &P [[buffer(0)]],
+                           uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= P.outWidth || gid.y >= P.outHeight) return;
+    uint2 src = sourcePixel(gid, P);
+    float4 pos = positionIn.read(src);
+    if (pos.w < 0.0) { lightOut.write(float4(0.0), gid); return; }
+    float3 n = normalIn.read(src).xyz;
+    lightOut.write(float4(directLight(pos.xyz, n, P), 1.0), gid);
 }
 
 // ---- Pass 3: ambient occlusion ----
@@ -746,6 +765,22 @@ float3 hemisphereDirection(float3 n, int i, int count) {
     return normalize(r * cos(phi) * t + r * sin(phi) * b + z * n);
 }
 
+// Ambient occlusion at one surface point. Used by the ao pass and, for edge
+// pixels, by the edge-aware composite.
+float ambientOcclusion(float3 surface, float3 n, constant Params &P) {
+    float occlusion = 0.0;
+    for (int d = 0; d < P.aoDirections; d++) {
+        float3 dir = hemisphereDirection(n, d, P.aoDirections);
+        float weight = 1.0;
+        for (int s = 1; s <= P.aoSteps; s++) {
+            float h = 0.04 + 0.6 * float(s) / float(P.aoSteps);
+            occlusion += weight * max(0.0, h - map(surface + dir * h, P.detailOctaves));
+            weight *= 0.7;
+        }
+    }
+    return clamp(1.0 - 1.5 * occlusion / float(max(P.aoDirections, 1)), 0.0, 1.0);
+}
+
 kernel void ao_kernel(texture2d<float, access::read> positionIn [[texture(0)]],
                       texture2d<float, access::read> normalIn [[texture(1)]],
                       texture2d<float, access::write> aoOut [[texture(2)]],
@@ -756,18 +791,7 @@ kernel void ao_kernel(texture2d<float, access::read> positionIn [[texture(0)]],
     float4 pos = positionIn.read(src);
     if (pos.w < 0.0) { aoOut.write(float4(1.0), gid); return; }
     float3 n = normalIn.read(src).xyz;
-    float occlusion = 0.0;
-    for (int d = 0; d < P.aoDirections; d++) {
-        float3 dir = hemisphereDirection(n, d, P.aoDirections);
-        float weight = 1.0;
-        for (int s = 1; s <= P.aoSteps; s++) {
-            float h = 0.04 + 0.6 * float(s) / float(P.aoSteps);
-            occlusion += weight * max(0.0, h - map(pos.xyz + dir * h, P.detailOctaves));
-            weight *= 0.7;
-        }
-    }
-    float ao = clamp(1.0 - 1.5 * occlusion / float(max(P.aoDirections, 1)), 0.0, 1.0);
-    aoOut.write(float4(ao), gid);
+    aoOut.write(float4(ambientOcclusion(pos.xyz, n, P)), gid);
 }
 
 // ---- Pass 4: composite ----
@@ -806,6 +830,58 @@ float4 upsample(texture2d<float, access::read> lo, texture2d<float, access::read
     return sum / max(wsum, 1e-5);
 }
 
+struct Upsampled {
+    float4 value;
+    bool valid;  // false: no low-resolution sample lies on this pixel's surface
+};
+
+// Edge-aware upsampling. Of the four nearest low-resolution samples, blend only
+// those taken on the same surface as this pixel: similar depth (within 5%) and
+// facing a similar way (normals within about 37 degrees). The normal test
+// matters at an object's base, where the object's side and the ground just
+// behind it are at almost the same depth. If no sample qualifies, the caller
+// computes the value at full resolution for this pixel.
+Upsampled upsampleEdgeAware(texture2d<float, access::read> lo,
+                            texture2d<float, access::read> positionIn,
+                            texture2d<float, access::read> normalIn,
+                            uint2 gid, float depth, float3 n, constant Params &P) {
+    Upsampled result;
+    uint lw = lo.get_width();
+    uint lh = lo.get_height();
+    if (lw == P.width && lh == P.height) {
+        result.value = lo.read(gid);
+        result.valid = true;
+        return result;
+    }
+    float2 f = (float2(gid) + 0.5) * float2(float(lw) / float(P.width), float(lh) / float(P.height)) - 0.5;
+    float2 cellBase = floor(f);
+    float2 frac = f - cellBase;
+    int2 base = int2(cellBase);
+    float tolerance = 0.05 * depth + 0.05;
+    float4 sum = float4(0.0);
+    float wsum = 0.0;
+    for (int dy = 0; dy <= 1; dy++) {
+        for (int dx = 0; dx <= 1; dx++) {
+            int2 c = clamp(base + int2(dx, dy), int2(0), int2(int(lw) - 1, int(lh) - 1));
+            float2 s = (float2(c) + 0.5) * float2(float(P.width) / float(lw), float(P.height) / float(lh));
+            uint2 src = min(uint2(s), uint2(P.width - 1, P.height - 1));
+            float d = positionIn.read(src).w;
+            float3 sn = normalIn.read(src).xyz;
+            bool sameSurface = d >= 0.0 && abs(d - depth) <= tolerance && dot(sn, n) > 0.8;
+            if (sameSurface) {
+                float bx = dx == 1 ? frac.x : 1.0 - frac.x;
+                float by = dy == 1 ? frac.y : 1.0 - frac.y;
+                float w = bx * by + 0.001;  // never exactly zero, so a lone match still counts
+                sum += lo.read(uint2(c)) * w;
+                wsum += w;
+            }
+        }
+    }
+    result.valid = wsum > 0.0;
+    result.value = result.valid ? sum / wsum : float4(0.0);
+    return result;
+}
+
 kernel void composite_kernel(texture2d<float, access::read> positionIn [[texture(0)]],
                              texture2d<float, access::read> normalIn [[texture(1)]],
                              texture2d<float, access::read> lightIn [[texture(2)]],
@@ -824,8 +900,17 @@ kernel void composite_kernel(texture2d<float, access::read> positionIn [[texture
         color = skyColor(rd);
     } else {
         float3 n = normalIn.read(gid).xyz;
-        float3 direct = upsample(lightIn, positionIn, gid, pos.w, P).rgb;
-        float ao = upsample(aoIn, positionIn, gid, pos.w, P).r;
+        float3 direct;
+        float ao;
+        if (P.upsampleMode == 1) {
+            Upsampled light = upsampleEdgeAware(lightIn, positionIn, normalIn, gid, pos.w, n, P);
+            direct = light.valid ? light.value.rgb : directLight(pos.xyz, n, P);
+            Upsampled occ = upsampleEdgeAware(aoIn, positionIn, normalIn, gid, pos.w, n, P);
+            ao = occ.valid ? occ.value.r : ambientOcclusion(pos.xyz, n, P);
+        } else {
+            direct = upsample(lightIn, positionIn, gid, pos.w, P).rgb;
+            ao = upsample(aoIn, positionIn, gid, pos.w, P).r;
+        }
         bool ground = pos.y < 0.1 && n.y > 0.9;
         float checker = ((int(floor(pos.x) + floor(pos.z)) & 1) == 0) ? 0.55 : 0.45;
         float3 albedo = ground ? float3(checker) : float3(0.75, 0.72, 0.68);
