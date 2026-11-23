@@ -320,7 +320,7 @@ Together, the two experiments show a complete optimization loop: measure where t
 
 ## 8. Next steps
 
-1. **Clean up the object outlines in the shadow fix.** Improve the upsampling filter at depth edges (for example, take the shadow from the single neighbor closest in depth when the four disagree), then repeat the timing comparison and the image check.
+1. **Clean up the object outlines in the shadow fix** (set up: `--upsample edge` and `configs/metal_shadow_fix_edge.yaml`). The edge-aware filter blends only low-resolution samples on the same surface as the pixel (similar depth and facing) and computes the rare pixels with no matching sample at full resolution. The follow-up captures baseline, the first fix, and the edge-aware fix alternately, then repeats the timing comparison and the image check.
 2. **Fix the dark-slit rendering bug** by checking the neighboring grid cells, then re-measure, since the fix adds work to every pass.
 3. **Re-run the four noisy combinations** with a 60 second cooldown, to separate heat from other variation.
 4. **Investigate the Low ceiling** at about 68 FPS: run full screen and with display sync on and off.

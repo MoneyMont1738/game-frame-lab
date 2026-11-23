@@ -66,6 +66,7 @@ GPU, and is something to measure, not assume.
 | `--output` | gflbench.csv | log path; a `.json` file with the same name records device, OS, and settings |
 | `--shadows-scale`, `--ao-scale` | 1 | render that pass at a fraction of the resolution, then upsample with a depth-aware filter |
 | `--vsync` | off | sync to the display; off by default so frame times show each frame's real cost |
+| `--upsample` | weighted | how a reduced-resolution pass is filled back in: `weighted` (the original depth-weighted filter) or `edge` (blends only samples on the same surface, computes edge pixels at full resolution) |
 | `--still` | (off) | render one frame to a PNG instead of benchmarking |
 | `--scene-time` | 5 | where on the camera path the still is taken, in seconds; the same time always gives the same view |
 
@@ -146,3 +147,28 @@ bench/metal/gflbench --preset high --resolution 2560x1440 --scene-time 5 --shado
 ```bash
 python scripts/compare_stills.py reports/figures/m3_shadowfix_baseline.png reports/figures/m3_shadowfix_fix.png reports/figures/m3_shadowfix_image_check.png
 ```
+
+### Follow-up: edge-aware upsampling
+
+The first fix left a thin stair-stepped line along object outlines: where a
+near object meets the background, a full-size pixel can have none of its four
+low-resolution samples on its own surface, and the original filter still
+averages them. `--upsample edge` blends only samples at a similar depth and
+facing a similar way, and computes the rare pixels with no matching sample at
+full resolution. `configs/metal_shadow_fix_edge.yaml` measures all three
+versions (baseline, fix, fix-edge) alternately, about 30 minutes:
+
+```bash
+gfl run configs/metal_shadow_fix_edge.yaml
+```
+
+```bash
+gfl compare data/raw/metal_shadow_fix_edge_baseline-vs-fix-vs-fix-edge_<timestamp> --fix fix-edge
+```
+
+```bash
+gfl compare data/raw/metal_shadow_fix_edge_baseline-vs-fix-vs-fix-edge_<timestamp> --baseline fix --fix fix-edge
+```
+
+The first comparison is the improved fix against the baseline; the second is
+what the edge handling costs compared with the first fix.
