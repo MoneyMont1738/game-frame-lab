@@ -1,10 +1,10 @@
 # Lab Report: How Graphics Settings Change GPU Work on an Apple M3
 
-**Experiments:** `metal_scalability` (36 runs) and `metal_shadow_fix` (10 runs), Phases 2b and 5 of Game Frame Lab
-**Date run:** November 18, 2026
+**Experiments:** `metal_scalability` (36 runs), `metal_shadow_fix` (10 runs) and `metal_shadow_fix_edge` (15 runs), Phases 2b and 5 of Game Frame Lab
+**Dates run:** November 18 and 23, 2026
 **Hardware:** Apple M3 MacBook Air (fanless), macOS 26.5.1
 **Operator:** Jackson Montgomery
-**Status:** Complete. 46 of 46 runs captured and analyzed. All numbers in this report are real measurements.
+**Status:** Complete. 61 runs analyzed (one further session of 15 runs was excluded because the Mac was in Low Power Mode; see section 5). All numbers in this report are real measurements.
 
 ---
 
@@ -17,7 +17,7 @@ Four findings:
 1. **The most expensive step changes with the quality setting.** At Low, finding the surfaces in the scene takes about half of the graphics chip's time. From High upward, drawing shadows takes the most, about half the time at Epic. This split barely changes with screen size.
 2. **Once the graphics chip is the limit, work grows in step with the number of pixels.** Going from 2560x1440 to 3840x2160 at High means 2.25 times as many pixels, and each frame took 2.26 times as long.
 3. **Epic costs about 7 times as much graphics work per frame as Low** (182 ms vs 26 ms per frame at 3840x2160).
-4. **One targeted fix cut frame time by 16.8 ms (34%).** Drawing the shadows at half resolution took High 2560x1440 from 50.0 ms to 33.2 ms per frame (20.0 to 30.1 FPS). The saving came almost entirely from the shadow step, as predicted before the test, and the image barely changed.
+4. **One targeted fix cut frame time by 16.8 ms (34%).** Drawing the shadows at half resolution took High 2560x1440 from 50.0 ms to 33.2 ms per frame (20.0 to 30.1 FPS). The saving came almost entirely from the shadow step, as predicted before the test, and the image barely changed. A smarter way of filling the shadows back in, tested afterwards, cost 0.7 ms and did not measurably improve the image.
 
 The data also shows the limits of measuring on a fanless laptop: 4 of the 12 combinations varied by more than 5% from run to run, partly because the chip slows down as it heats up.
 
@@ -282,6 +282,35 @@ The full frames, same view, baseline then fix (compressed copies of the PNGs the
 
 Rendering shadows at half resolution is a strong fix at High 2560x1440 on this hardware: one third off every frame, with 98% of pixels essentially unchanged. Its one visible cost is a thin stair-stepped line along some object outlines. It is subtle in a still frame, but edges like this tend to shimmer when the camera moves, so a better filter at depth edges is the next refinement.
 
+### Follow-up: can a smarter filter remove the outlines?
+
+**Idea.** The stair-stepped outlines suggested a specific cause: at an object's edge, a full-size pixel can have none of its four low-resolution shadow samples on its own surface, and the original filter still blends them. An *edge-aware* filter (`--upsample edge`) blends only samples on the same surface (similar depth and facing a similar way) and, when none qualifies, computes that pixel's shadow at full resolution.
+
+**Method.** Three versions captured alternately, 5 runs each: baseline, the original fix, and the fix with the edge-aware filter (`configs/metal_shadow_fix_edge.yaml`).
+
+**Predictions, written down before the run:** the composite step gets slightly slower (it now does extra work at edges), the total saving ends up a little under 16.8 ms, and the image check shows far fewer changed pixels and a much smaller largest difference.
+
+**A session that had to be thrown out.** The first attempt ran with the Mac in Low Power Mode and on battery. Every render pass took about 1.86 times as long as in experiment 2 (the baseline averaged 93.1 ms per frame instead of about 50 ms), and runs disagreed so much that most comparisons were meaningless. Because every pass slowed by the same factor, the cause was the GPU running at a lower clock, not the code. That session is excluded, and `gfl run` now checks the Mac's power state before a capture and asks before continuing on battery or in Low Power Mode. The repeat session, with Low Power Mode off, measured a baseline of 50.12 ms per frame, within 0.2% of experiment 2, so it is comparable.
+
+**Results** (repeat session):
+
+| Measurement | Baseline | Original fix | Edge-aware fix |
+|---|---:|---:|---:|
+| Mean frame time | 50.12 ms | 35.21 ms | 34.40 ms |
+| GPU: shadows pass | 22.79 ms | 6.57 ms | 6.31 ms |
+| GPU: composite pass | 1.51 ms | 1.44 ms | 2.20 ms |
+| Image check vs baseline: PSNR | (reference) | 44.1 dB | 45.5 dB |
+| Pixels changed by 2+ levels | (reference) | 2.34% | 2.23% |
+| Largest pixel difference | (reference) | 138 of 255 | 136 of 255 |
+
+- **Edge-aware fix vs baseline:** -15.72 ms per frame (-31.4%), 95% interval -16.41 to -15.03 ms. The shadow pass fell 72%, as in experiment 2.
+- **Edge-aware vs original fix:** the composite step costs 0.76 ms more (95% interval +0.62 to +0.90 ms), a real cost. The total frame-time difference (-0.81 ms, interval -3.65 to +2.02 ms) is within run-to-run noise.
+- **The image barely changed.** The share of changed pixels fell only from 2.34% to 2.23%, and the largest difference stayed at about 137 out of 255.
+
+**Two predictions held, one did not.** The extra composite cost and the slightly smaller total saving appeared as predicted. The image improvement did not: most of the remaining differences are evidently not at the object outlines the filter handles, so its explanation of the artifact was incomplete. A likely remaining source is that a quarter-resolution shadow pass blurs sharp shadow boundaries wherever they fall, which no filling-in method can recover; this was not tested.
+
+**Decision.** Keep the original filter. The edge-aware filter adds 0.7 ms per frame for an image difference too small to measure as an improvement. A negative result like this is still useful: it rules out one explanation and stops a cost from being added for nothing.
+
 ---
 
 ## 6. Discussion
@@ -315,12 +344,14 @@ Together, the two experiments show a complete optimization loop: measure where t
 5. Memory use matches the renderer's working images to within 1% at the two larger resolutions, which validates the measurement.
 6. A fanless laptop adds run-to-run variation; 4 of 12 combinations need re-measurement before their numbers are quoted.
 7. Rendering shadows at half resolution cut frame time by 16.8 ms (33.6%, 95% interval 15.6 to 18.0 ms) at High 2560x1440, as predicted from the per-pass measurements, with an image PSNR of 44 dB.
+8. An edge-aware filter for the half-resolution shadows cost 0.7 ms per frame and did not measurably improve the image (changed pixels 2.34% to 2.23%), so the original filter stays.
+9. Low Power Mode slowed every render pass by about 1.86 times; measurements on a laptop are only comparable when its power state is the same, which the toolkit now checks.
 
 ---
 
 ## 8. Next steps
 
-1. **Clean up the object outlines in the shadow fix** (set up: `--upsample edge` and `configs/metal_shadow_fix_edge.yaml`). The edge-aware filter blends only low-resolution samples on the same surface as the pixel (similar depth and facing) and computes the rare pixels with no matching sample at full resolution. The follow-up captures baseline, the first fix, and the edge-aware fix alternately, then repeats the timing comparison and the image check.
+1. **Find where the remaining image differences are.** The edge-aware filter ruled out object outlines as the main source. Map the differences against shadow boundaries to test whether the half-resolution shadow pass itself blurs them, and if so, test a smaller reduction (for example `--shadows-scale 0.75`) as a quality and speed trade-off.
 2. **Fix the dark-slit rendering bug** by checking the neighboring grid cells, then re-measure, since the fix adds work to every pass.
 3. **Re-run the four noisy combinations** with a 60 second cooldown, to separate heat from other variation.
 4. **Investigate the Low ceiling** at about 68 FPS: run full screen and with display sync on and off.
