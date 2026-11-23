@@ -193,3 +193,11 @@ def test_compare_stills_script_end_to_end(tmp_path, monkeypatch, capsys):
     stills.main()
     assert (tmp_path / "out.png").exists()
     assert "PSNR" in capsys.readouterr().out
+
+
+def test_shipped_edge_followup_config_alternates_three_variants():
+    exp = load_experiment(ROOT / "configs/metal_shadow_fix_edge.yaml")
+    order = [(r.tag, i) for r, i in exp.capture_order()][:6]
+    assert order == [("baseline", 1), ("fix", 1), ("fix-edge", 1), ("baseline", 2), ("fix", 2), ("fix-edge", 2)]
+    edge = next(r for r in exp.expand() if r.tag == "fix-edge")
+    assert edge.extra_args == ("--shadows-scale", "0.5", "--upsample", "edge")

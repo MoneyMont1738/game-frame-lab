@@ -1,0 +1,37 @@
+# Follow-up to metal_shadow_fix: does edge-aware upsampling remove the
+# stair-stepped object outlines, and what does it cost?
+#
+# The first fix (half-resolution shadows, original depth-weighted filter) saved
+# 16.8 ms per frame but left a thin stair-stepped line along object outlines.
+# The edge-aware filter blends only low-resolution samples on the same surface
+# (similar depth and facing) and computes edge pixels at full resolution, which
+# should remove the line at a small cost in the composite pass.
+#
+# Three variants, captured alternately (baseline 1, fix 1, fix-edge 1, ...), so
+# the MacBook Air warming up affects all three equally. About 30 minutes.
+experiment: metal_shadow_fix_edge
+description: >
+  gflbench at High 2560x1440: full-resolution shadows (baseline), half-resolution
+  shadows with the original filter (fix), and half-resolution shadows with the
+  edge-aware filter (fix-edge).
+
+scene:
+  name: metal
+  launcher: gflbench
+  executable: bench/metal/gflbench
+  process_name: gflbench
+
+capture:
+  runs: 5           # per variant; 15 runs in total
+  duration_s: 60
+  warmup_s: 10
+  cooldown_s: 60
+
+variants:
+  baseline: []
+  fix: ["--shadows-scale", "0.5"]
+  fix-edge: ["--shadows-scale", "0.5", "--upsample", "edge"]
+
+matrix:
+  preset: [high]
+  resolution: [2560x1440]
