@@ -108,6 +108,10 @@ gfl analyze data/raw/<capture folder>
 
 12 configs x 3 runs x 60 s with cooldowns: about 45 minutes. Plug the Mac in,
 turn off Low Power Mode, close other apps, and leave it alone while it runs.
+`gfl run` checks the first two with `pmset` before it starts and asks before
+continuing if either is wrong: a session on battery or in Low Power Mode ran
+every pass about 1.9x slower here, so its numbers cannot be compared with a
+plugged-in session.
 
 **Thermals.** A MacBook Air has no fan and lowers its clock speed under long
 sustained load. That would make later runs slower than earlier ones for reasons

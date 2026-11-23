@@ -89,6 +89,30 @@ def require_capture_platform(experiment: ExperimentConfig) -> None:
         require_windows("Benchmark capture with PresentMon")
 
 
+def mac_power_warnings(read: Callable[[list[str]], str] | None = None) -> list[str]:
+    """Reasons this Mac may run the GPU slower than usual, from `pmset`.
+
+    On a MacBook, Low Power Mode and running on battery lower clock speeds,
+    which slows every pass by the same factor and makes runs disagree. A
+    capture taken that way cannot be compared with one taken plugged in.
+    `read` runs a command and returns its output (replaced in tests).
+    """
+    if read is None:
+        def read(command):
+            try:
+                return subprocess.run(command, capture_output=True, text=True, timeout=10).stdout
+            except (OSError, subprocess.SubprocessError):
+                return ""
+    warnings = []
+    if "Battery Power" in read(["pmset", "-g", "batt"]):
+        warnings.append("the Mac is running on battery; plug it in")
+    for line in read(["pmset", "-g"]).splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].lower() == "lowpowermode" and parts[1] == "1":
+            warnings.append("Low Power Mode is on; turn it off in System Settings, Battery")
+    return warnings
+
+
 class SubprocessRunner:
     """Executes commands for real (Windows for PresentMon, macOS for gflbench)."""
 

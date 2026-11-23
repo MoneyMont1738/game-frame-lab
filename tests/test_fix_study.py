@@ -201,3 +201,30 @@ def test_shipped_edge_followup_config_alternates_three_variants():
     assert order == [("baseline", 1), ("fix", 1), ("fix-edge", 1), ("baseline", 2), ("fix", 2), ("fix-edge", 2)]
     edge = next(r for r in exp.expand() if r.tag == "fix-edge")
     assert edge.extra_args == ("--shadows-scale", "0.5", "--upsample", "edge")
+
+
+# --- power-state check before Mac captures -------------------------------------- #
+
+PMSET_PLUGGED = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=1)\t100%; charged;"
+PMSET_BATTERY = "Now drawing from 'Battery Power'\n -InternalBattery-0 (id=1)\t80%; discharging;"
+PMSET_SETTINGS = "System-wide power settings:\nCurrently in use:\n standby              1\n lowpowermode         {lpm}\n sleep                1\n"
+
+
+@pytest.mark.parametrize("batt, lpm, expected", [
+    (PMSET_PLUGGED, 0, []),
+    (PMSET_BATTERY, 0, ["battery"]),
+    (PMSET_PLUGGED, 1, ["Low Power Mode"]),
+    (PMSET_BATTERY, 1, ["battery", "Low Power Mode"]),
+])
+def test_mac_power_warnings(batt, lpm, expected):
+    from gfl.capture import mac_power_warnings
+    outputs = {"batt": batt, "settings": PMSET_SETTINGS.format(lpm=lpm)}
+    warnings = mac_power_warnings(lambda cmd: outputs["batt" if "batt" in cmd else "settings"])
+    assert len(warnings) == len(expected)
+    for warning, word in zip(warnings, expected):
+        assert word in warning
+
+
+def test_mac_power_warnings_tolerate_missing_pmset():
+    from gfl.capture import mac_power_warnings
+    assert mac_power_warnings(lambda cmd: "") == []

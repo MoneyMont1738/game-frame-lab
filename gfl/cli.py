@@ -40,7 +40,7 @@ def run(
                                        help="Local settings file (default: gfl.local.yaml)"),
 ) -> None:
     """Capture every config in an experiment (Windows PC, or a Mac for gflbench)."""
-    from gfl.capture import (DryRunRunner, SubprocessRunner, capture_dir_for,
+    from gfl.capture import (DryRunRunner, SubprocessRunner, capture_dir_for, mac_power_warnings,
                              require_capture_platform, run_experiment, with_tag)
     from gfl.settings import load_settings
 
@@ -66,6 +66,13 @@ def run(
             run_experiment(experiment, DryRunRunner(typer.echo), settings, out_dir, write_files=False)
             return
         require_capture_platform(experiment)
+        if experiment.scene.launcher == "gflbench":
+            problems = mac_power_warnings()
+            for problem in problems:
+                typer.secho(f"warning: {problem}", fg=typer.colors.YELLOW, err=True)
+            if problems and not typer.confirm("Results taken like this are not comparable with "
+                                              "plugged-in runs. Continue anyway?", default=False):
+                raise typer.Exit(code=1)
         runner = SubprocessRunner(typer.echo)
         run_experiment(experiment, runner, settings, out_dir)
         typer.echo(f"\nCaptured. Next: gfl analyze {out_dir}")
